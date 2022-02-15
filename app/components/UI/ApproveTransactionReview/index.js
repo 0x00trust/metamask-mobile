@@ -618,7 +618,7 @@ class ApproveTransactionReview extends PureComponent {
 						)}`}
 					</Text>
 					<View style={styles.contactWrapper}>
-						<Text>Contract: </Text>
+						<Text>{strings('nickname.contract')}: </Text>
 						<TouchableOpacity style={styles.addressWrapper} onPress={this.copyContractAddress}>
 							<Identicon address={this.state.transaction.to} diameter={20} />
 							{this.props.nicknameExists ? (
@@ -636,7 +636,7 @@ class ApproveTransactionReview extends PureComponent {
 						</TouchableOpacity>
 					</View>
 					<Text style={styles.nickname} onPress={this.toggleDisplay}>
-						{this.props.nicknameExists ? 'Edit' : 'Add'} nickname
+						{this.props.nicknameExists ? 'Edit' : 'Add'} {strings('nickname.nickname')}
 					</Text>
 					<View style={styles.actionViewWrapper}>
 						<ActionView
