@@ -5,7 +5,10 @@ import { ethErrors } from 'eth-json-rpc-errors';
 import RPCMethods from './index.js';
 import { RPC } from '../../constants/network';
 import { NetworksChainId, NetworkType } from '@metamask/controllers';
-import Networks, { blockTagParamIndex, getAllNetworks } from '../../util/networks';
+import Networks, {
+  blockTagParamIndex,
+  getAllNetworks,
+} from '../../util/networks';
 import { polyfillGasPrice } from './utils';
 import ImportedEngine from '../Engine';
 import { strings } from '../../../locales/i18n';
@@ -13,467 +16,640 @@ import { resemblesAddress } from '../../util/address';
 import { store } from '../../store';
 import { removeBookmark } from '../../actions/bookmarks';
 import setOnboardingWizardStep from '../../actions/wizard';
+import { v1 as random } from 'uuid';
+const Engine = ImportedEngine as any;
 
 let appVersion = '';
 
-interface RPCMethodsMiddleParameters {
-	hostname: string;
-	getProviderState: () => any;
-	navigation: any;
-	getApprovedHosts: any;
-	url: { current: string };
-	title: { current: string };
-	icon: { current: string };
-	// eth_requestAccounts
-	showApprovalDialog: boolean;
-	setShowApprovalDialog: (showApprovalDialog: boolean) => void;
-	setShowApprovalDialogHostname: (hostname: string) => void;
-	approvalRequest: { current: { resolve: (value: boolean) => void; reject: () => void } };
-	// Bookmarks
-	isHomepage: () => boolean;
-	// Show autocomplete
-	fromHomepage: { current: boolean };
-	setAutocompleteValue: (value: string) => void;
-	setShowUrlModal: (showUrlModal: boolean) => void;
-	// Wizard
-	wizardScrollAdjusted: { current: boolean };
-	// wallet_addEthereumChain && wallet_switchEthereumChain
-	showAddCustomNetworkDialog: (addCustomNetworkDialog: boolean) => void;
-	showSwitchCustomNetworkDialog: (switchCustomNetworkDialog: boolean) => void;
-	addCustomNetworkRequest: { current: boolean | null };
-	switchCustomNetworkRequest: { current: boolean | null };
-	setCustomNetworkToSwitch: (customNetworkToSwitch: any) => void;
-	setShowSwitchCustomNetworkDialog: (showSwitchCustomNetworkDialog: string | undefined) => void;
-	setCustomNetworkToAdd: (customNetworkToAdd: any) => void;
-	setShowAddCustomNetworkDialog: (showAddCustomNetworkDialog: boolean) => void;
+export enum ApprovalTypes {
+  CONNECT_ACCOUNTS = 'CONNECT_ACCOUNTS',
+  SIGN_MESSAGE = 'SIGN_MESSAGE',
+  ADD_ETHEREUM_CHAIN = 'ADD_ETHEREUM_CHAIN',
+  SWITCH_ETHEREUM_CHAIN = 'SWITCH_ETHEREUM_CHAIN',
 }
+
+interface RPCMethodsMiddleParameters {
+  hostname: string;
+  getProviderState: () => any;
+  navigation: any;
+  getApprovedHosts: any;
+  setApprovedHosts: (approvedHosts: any) => void;
+  approveHost: (fullHostname: string) => void;
+  url: { current: string };
+  title: { current: string };
+  icon: { current: string };
+  approvalRequest: {
+    current: { resolve: (value: boolean) => void; reject: () => void };
+  };
+  // Bookmarks
+  isHomepage: () => boolean;
+  // Show autocomplete
+  fromHomepage: { current: boolean };
+  toggleUrlModal: (shouldClearUrlInput: boolean) => void;
+  // Wizard
+  wizardScrollAdjusted: { current: boolean };
+  // For the browser
+  tabId: string;
+  // For WalletConnect
+  isWalletConnect: boolean;
+  injectHomePageScripts: (bookmarks?: []) => void;
+}
+
+export const checkActiveAccountAndChainId = ({
+  address,
+  chainId,
+  activeAccounts,
+}: any) => {
+  if (address) {
+    if (
+      !activeAccounts ||
+      !activeAccounts.length ||
+      address.toLowerCase() !== activeAccounts?.[0]?.toLowerCase()
+    ) {
+      throw ethErrors.rpc.invalidParams({
+        message: `Invalid parameters: must provide an Ethereum address.`,
+      });
+    }
+  }
+
+  if (chainId) {
+    const { provider } = Engine.context.NetworkController.state;
+    const networkProvider = provider;
+    const networkType = provider.type as NetworkType;
+    const isInitialNetwork =
+      networkType && getAllNetworks().includes(networkType);
+    let activeChainId;
+
+    if (isInitialNetwork) {
+      activeChainId = NetworksChainId[networkType];
+    } else if (networkType === RPC) {
+      activeChainId = networkProvider.chainId;
+    }
+
+    if (activeChainId && !activeChainId.startsWith('0x')) {
+      // Convert to hex
+      activeChainId = `0x${parseInt(activeChainId, 10).toString(16)}`;
+    }
+
+    let chainIdRequest = String(chainId);
+    if (chainIdRequest && !chainIdRequest.startsWith('0x')) {
+      // Convert to hex
+      chainIdRequest = `0x${parseInt(chainIdRequest, 10).toString(16)}`;
+    }
+
+    if (activeChainId !== chainIdRequest) {
+      Alert.alert(
+        `Active chainId is ${activeChainId} but received ${chainIdRequest}`,
+      );
+      throw ethErrors.rpc.invalidParams({
+        message: `Invalid parameters: active chainId is different than the one provided.`,
+      });
+    }
+  }
+};
 
 /**
  * Handle RPC methods called by dapps
  */
 export const getRpcMethodMiddleware = ({
-	hostname,
-	getProviderState,
-	navigation,
-	getApprovedHosts,
-	// Website info
-	url,
-	title,
-	icon,
-	// eth_requestAccounts
-	showApprovalDialog,
-	setShowApprovalDialog,
-	setShowApprovalDialogHostname,
-	approvalRequest,
-	// Bookmarks
-	isHomepage,
-	// Show autocomplete
-	fromHomepage,
-	setAutocompleteValue,
-	setShowUrlModal,
-	// Wizard
-	wizardScrollAdjusted,
-	// wallet_addEthereumChain && wallet_switchEthereumChain
-	showAddCustomNetworkDialog,
-	showSwitchCustomNetworkDialog,
-	addCustomNetworkRequest,
-	switchCustomNetworkRequest,
-	setCustomNetworkToSwitch,
-	setShowSwitchCustomNetworkDialog,
-	setCustomNetworkToAdd,
-	setShowAddCustomNetworkDialog,
+  hostname,
+  getProviderState,
+  navigation,
+  getApprovedHosts,
+  setApprovedHosts,
+  approveHost,
+  // Website info
+  url,
+  title,
+  icon,
+  // Bookmarks
+  isHomepage,
+  // Show autocomplete
+  fromHomepage,
+  toggleUrlModal,
+  // Wizard
+  wizardScrollAdjusted,
+  // For the browser
+  tabId,
+  // For WalletConnect
+  isWalletConnect,
+  injectHomePageScripts,
 }: RPCMethodsMiddleParameters) =>
-	// all user facing RPC calls not implemented by the provider
-	createAsyncMiddleware(async (req: any, res: any, next: any) => {
-		const Engine = ImportedEngine as any;
-		const getAccounts = async () => {
-			const {
-				privacy: { privacyMode },
-			} = store.getState();
+  // all user facing RPC calls not implemented by the provider
+  createAsyncMiddleware(async (req: any, res: any, next: any) => {
+    const getAccounts = (): string[] => {
+      const {
+        privacy: { privacyMode },
+      } = store.getState();
 
-			const selectedAddress = Engine.context.PreferencesController.state.selectedAddress?.toLowerCase();
-			const isEnabled = !privacyMode || getApprovedHosts()[hostname];
+      const selectedAddress =
+        Engine.context.PreferencesController.state.selectedAddress?.toLowerCase();
 
-			return isEnabled && selectedAddress ? [selectedAddress] : [];
-		};
+      const isEnabled =
+        isWalletConnect || !privacyMode || getApprovedHosts()[hostname];
 
-		const rpcMethods: any = {
-			eth_getTransactionByHash: async () => {
-				res.result = await polyfillGasPrice('getTransactionByHash', req.params);
-			},
-			eth_getTransactionByBlockHashAndIndex: async () => {
-				res.result = await polyfillGasPrice('getTransactionByBlockHashAndIndex', req.params);
-			},
-			eth_getTransactionByBlockNumberAndIndex: async () => {
-				res.result = await polyfillGasPrice('getTransactionByBlockNumberAndIndex', req.params);
-			},
-			eth_chainId: async () => {
-				const { provider } = Engine.context.NetworkController.state;
-				const networkProvider = provider;
-				const networkType = provider.type as NetworkType;
-				const isInitialNetwork = networkType && getAllNetworks().includes(networkType);
-				let chainId;
+      return isEnabled && selectedAddress ? [selectedAddress] : [];
+    };
 
-				if (isInitialNetwork) {
-					chainId = NetworksChainId[networkType];
-				} else if (networkType === 'rpc') {
-					chainId = networkProvider.chainId;
-				}
+    const checkTabActive = () => {
+      if (!tabId) return true;
+      const { browser } = store.getState();
+      if (tabId !== browser.activeTab)
+        throw ethErrors.provider.userRejectedRequest();
+    };
 
-				if (chainId && !chainId.startsWith('0x')) {
-					// Convert to hex
-					res.result = `0x${parseInt(chainId, 10).toString(16)}`;
-				}
-			},
-			net_version: async () => {
-				const {
-					provider: { type: networkType },
-				} = Engine.context.NetworkController.state;
+    const requestUserApproval = async ({ type = '', requestData = {} }) => {
+      checkTabActive();
+      await Engine.context.ApprovalController.clear(
+        ethErrors.provider.userRejectedRequest(),
+      );
 
-				const isInitialNetwork = networkType && getAllNetworks().includes(networkType);
-				if (isInitialNetwork) {
-					res.result = (Networks as any)[networkType].networkId;
-				} else {
-					return next();
-				}
-			},
-			eth_requestAccounts: async () => {
-				const { params } = req;
-				const {
-					privacy: { privacyMode },
-				} = store.getState();
+      const responseData = await Engine.context.ApprovalController.add({
+        origin: hostname,
+        type,
+        requestData: {
+          ...requestData,
+          pageMeta: {
+            url: url.current,
+            title: title.current,
+            icon: icon.current,
+          },
+        },
+        id: random(),
+      });
+      return responseData;
+    };
 
-				let { selectedAddress } = Engine.context.PreferencesController.state;
+    const rpcMethods: any = {
+      eth_getTransactionByHash: async () => {
+        res.result = await polyfillGasPrice('getTransactionByHash', req.params);
+      },
+      eth_getTransactionByBlockHashAndIndex: async () => {
+        res.result = await polyfillGasPrice(
+          'getTransactionByBlockHashAndIndex',
+          req.params,
+        );
+      },
+      eth_getTransactionByBlockNumberAndIndex: async () => {
+        res.result = await polyfillGasPrice(
+          'getTransactionByBlockNumberAndIndex',
+          req.params,
+        );
+      },
+      eth_chainId: async () => {
+        const { provider } = Engine.context.NetworkController.state;
+        const networkProvider = provider;
+        const networkType = provider.type as NetworkType;
+        const isInitialNetwork =
+          networkType && getAllNetworks().includes(networkType);
+        let chainId;
 
-				selectedAddress = selectedAddress?.toLowerCase();
+        if (isInitialNetwork) {
+          chainId = NetworksChainId[networkType];
+        } else if (networkType === RPC) {
+          chainId = networkProvider.chainId;
+        }
 
-				if (!privacyMode || ((!params || !params.force) && getApprovedHosts()[hostname])) {
-					res.result = [selectedAddress];
-				} else {
-					if (showApprovalDialog) return;
-					setShowApprovalDialog(true);
-					setShowApprovalDialogHostname(hostname);
+        if (chainId && !chainId.startsWith('0x')) {
+          // Convert to hex
+          res.result = `0x${parseInt(chainId, 10).toString(16)}`;
+        }
+      },
+      net_version: async () => {
+        const {
+          provider: { type: networkType },
+        } = Engine.context.NetworkController.state;
 
-					const approved = await new Promise((resolve, reject) => {
-						approvalRequest.current = { resolve, reject };
-					});
+        const isInitialNetwork =
+          networkType && getAllNetworks().includes(networkType);
+        if (isInitialNetwork) {
+          res.result = (Networks as any)[networkType].networkId;
+        } else {
+          return next();
+        }
+      },
+      eth_requestAccounts: async () => {
+        const { params } = req;
+        const {
+          privacy: { privacyMode },
+        } = store.getState();
 
-					if (approved) {
-						res.result = selectedAddress ? [selectedAddress] : [];
-					} else {
-						throw ethErrors.provider.userRejectedRequest('User denied account authorization.');
-					}
-				}
-			},
-			eth_accounts: async () => {
-				res.result = await getAccounts();
-			},
+        let { selectedAddress } = Engine.context.PreferencesController.state;
 
-			eth_coinbase: async () => {
-				const accounts = await getAccounts();
-				res.result = accounts.length > 0 ? accounts[0] : null;
-			},
+        selectedAddress = selectedAddress?.toLowerCase();
 
-			eth_sign: async () => {
-				const { MessageManager } = Engine.context;
-				const pageMeta = {
-					meta: {
-						url: url.current,
-						title: title.current,
-						icon: icon.current,
-					},
-				};
-				const rawSig = await MessageManager.addUnapprovedMessageAsync({
-					data: req.params[1],
-					from: req.params[0],
-					...pageMeta,
-				});
+        if (
+          isWalletConnect ||
+          !privacyMode ||
+          ((!params || !params.force) && getApprovedHosts()[hostname])
+        ) {
+          res.result = [selectedAddress];
+        } else {
+          try {
+            await requestUserApproval({
+              type: ApprovalTypes.CONNECT_ACCOUNTS,
+              requestData: { hostname },
+            });
+            const fullHostname = new URL(url.current).hostname;
+            approveHost?.(fullHostname);
+            setApprovedHosts?.({
+              ...getApprovedHosts?.(),
+              [fullHostname]: true,
+            });
 
-				res.result = rawSig;
-			},
+            res.result = selectedAddress ? [selectedAddress] : [];
+          } catch (e) {
+            throw ethErrors.provider.userRejectedRequest(
+              'User denied account authorization.',
+            );
+          }
+        }
+      },
+      eth_accounts: async () => {
+        res.result = await getAccounts();
+      },
 
-			personal_sign: async () => {
-				const { PersonalMessageManager } = Engine.context;
-				const firstParam = req.params[0];
-				const secondParam = req.params[1];
-				const params = {
-					data: firstParam,
-					from: secondParam,
-				};
+      eth_coinbase: async () => {
+        const accounts = await getAccounts();
+        res.result = accounts.length > 0 ? accounts[0] : null;
+      },
+      eth_sendTransaction: () => {
+        checkTabActive();
+        checkActiveAccountAndChainId({
+          address: req.params[0].from,
+          chainId: req.params[0].chainId,
+          activeAccounts: getAccounts(),
+        });
+        next();
+      },
+      eth_signTransaction: async () => {
+        // This is implemented later in our middleware stack – specifically, in
+        // eth-json-rpc-middleware – but our UI does not support it.
+        throw ethErrors.rpc.methodNotSupported();
+      },
+      eth_sign: async () => {
+        const { MessageManager } = Engine.context;
+        const pageMeta = {
+          meta: {
+            url: url.current,
+            title: title.current,
+            icon: icon.current,
+          },
+        };
 
-				if (resemblesAddress(firstParam) && !resemblesAddress(secondParam)) {
-					params.data = secondParam;
-					params.from = firstParam;
-				}
+        checkTabActive();
+        checkActiveAccountAndChainId({
+          address: req.params[0].from,
+          activeAccounts: getAccounts(),
+        });
 
-				const pageMeta = {
-					meta: {
-						url: url.current,
-						title: title.current,
-						icon: icon.current,
-					},
-				};
-				const rawSig = await PersonalMessageManager.addUnapprovedMessageAsync({
-					...params,
-					...pageMeta,
-				});
+        if (req.params[1].length === 66 || req.params[1].length === 67) {
+          const rawSig = await MessageManager.addUnapprovedMessageAsync({
+            data: req.params[1],
+            from: req.params[0],
+            ...pageMeta,
+            origin: hostname,
+          });
 
-				res.result = rawSig;
-			},
+          res.result = rawSig;
+        } else {
+          throw ethErrors.rpc.invalidParams(
+            'eth_sign requires 32 byte message hash',
+          );
+        }
+      },
 
-			eth_signTypedData: async () => {
-				const { TypedMessageManager } = Engine.context;
-				const pageMeta = {
-					meta: {
-						url: url.current,
-						title: title.current,
-						icon: icon.current,
-					},
-				};
-				const rawSig = await TypedMessageManager.addUnapprovedMessageAsync(
-					{
-						data: req.params[0],
-						from: req.params[1],
-						...pageMeta,
-					},
-					'V1'
-				);
+      personal_sign: async () => {
+        const { PersonalMessageManager } = Engine.context;
+        const firstParam = req.params[0];
+        const secondParam = req.params[1];
+        const params = {
+          data: firstParam,
+          from: secondParam,
+        };
 
-				res.result = rawSig;
-			},
+        if (resemblesAddress(firstParam) && !resemblesAddress(secondParam)) {
+          params.data = secondParam;
+          params.from = firstParam;
+        }
 
-			eth_signTypedData_v3: async () => {
-				const { TypedMessageManager } = Engine.context;
-				const data = JSON.parse(req.params[1]);
-				const chainId = data.domain.chainId;
+        const pageMeta = {
+          meta: {
+            url: url.current,
+            title: title.current,
+            icon: icon.current,
+          },
+        };
 
-				const {
-					provider: { type: networkType },
-					network,
-				} = Engine.context.NetworkController.state;
+        checkTabActive();
+        checkActiveAccountAndChainId({
+          address: params.from,
+          activeAccounts: getAccounts(),
+        });
 
-				const activeChainId = networkType === RPC ? network : (Networks as any)[networkType].networkId;
-				// eslint-disable-next-line
-				if (chainId && chainId != activeChainId) {
-					throw ethErrors.rpc.invalidRequest(
-						`Provided chainId (${chainId}) must match the active chainId (${activeChainId})`
-					);
-				}
+        const rawSig = await PersonalMessageManager.addUnapprovedMessageAsync({
+          ...params,
+          ...pageMeta,
+          origin: hostname,
+        });
 
-				const pageMeta = {
-					meta: {
-						url: url.current,
-						title: title.current,
-						icon: icon.current,
-					},
-				};
+        res.result = rawSig;
+      },
 
-				const rawSig = await TypedMessageManager.addUnapprovedMessageAsync(
-					{
-						data: req.params[1],
-						from: req.params[0],
-						...pageMeta,
-					},
-					'V3'
-				);
+      eth_signTypedData: async () => {
+        const { TypedMessageManager } = Engine.context;
+        const pageMeta = {
+          meta: {
+            url: url.current,
+            title: title.current,
+            icon: icon.current,
+          },
+        };
 
-				res.result = rawSig;
-			},
+        checkTabActive();
+        checkActiveAccountAndChainId({
+          address: req.params[1],
+          activeAccounts: getAccounts(),
+        });
 
-			eth_signTypedData_v4: async () => {
-				const { TypedMessageManager } = Engine.context;
-				const data = JSON.parse(req.params[1]);
-				const chainId = data.domain.chainId;
+        const rawSig = await TypedMessageManager.addUnapprovedMessageAsync(
+          {
+            data: req.params[0],
+            from: req.params[1],
+            ...pageMeta,
+            origin: hostname,
+          },
+          'V1',
+        );
 
-				const {
-					provider: { type: networkType },
-					network,
-				} = Engine.context.NetworkController.state;
+        res.result = rawSig;
+      },
 
-				const activeChainId = networkType === RPC ? network : (Networks as any)[networkType].networkId;
+      eth_signTypedData_v3: async () => {
+        const { TypedMessageManager } = Engine.context;
 
-				// eslint-disable-next-line eqeqeq
-				if (chainId && chainId != activeChainId) {
-					throw ethErrors.rpc.invalidRequest(
-						`Provided chainId (${chainId}) must match the active chainId (${activeChainId})`
-					);
-				}
+        const data = JSON.parse(req.params[1]);
+        const chainId = data.domain.chainId;
 
-				const pageMeta = {
-					meta: {
-						url: url.current,
-						title: title.current,
-						icon: icon.current,
-					},
-				};
-				const rawSig = await TypedMessageManager.addUnapprovedMessageAsync(
-					{
-						data: req.params[1],
-						from: req.params[0],
-						...pageMeta,
-					},
-					'V4'
-				);
+        const pageMeta = {
+          meta: {
+            url: url.current,
+            title: title.current,
+            icon: icon.current,
+          },
+        };
 
-				res.result = rawSig;
-			},
+        checkTabActive();
+        checkActiveAccountAndChainId({
+          address: req.params[0],
+          chainId,
+          activeAccounts: getAccounts(),
+        });
 
-			web3_clientVersion: async () => {
-				if (!appVersion) {
-					appVersion = await getVersion();
-				}
-				res.result = `MetaMask/${appVersion}/Mobile`;
-			},
+        const rawSig = await TypedMessageManager.addUnapprovedMessageAsync(
+          {
+            data: req.params[1],
+            from: req.params[0],
+            ...pageMeta,
+            origin: hostname,
+          },
+          'V3',
+        );
 
-			wallet_scanQRCode: () =>
-				new Promise<void>((resolve, reject) => {
-					navigation.navigate('QRScanner', {
-						onScanSuccess: (data: any) => {
-							const regex = new RegExp(req.params[0]);
-							if (regex && !regex.exec(data)) {
-								reject({ message: 'NO_REGEX_MATCH', data });
-							} else if (!regex && !/^(0x){1}[0-9a-fA-F]{40}$/i.exec(data.target_address)) {
-								reject({ message: 'INVALID_ETHEREUM_ADDRESS', data: data.target_address });
-							}
-							let result = data;
-							if (data.target_address) {
-								result = data.target_address;
-							} else if (data.scheme) {
-								result = JSON.stringify(data);
-							}
-							res.result = result;
-							resolve();
-						},
-						onScanError: (e: { toString: () => any }) => {
-							throw ethErrors.rpc.internal(e.toString());
-						},
-					});
-				}),
+        res.result = rawSig;
+      },
 
-			wallet_watchAsset: async () => {
-				const {
-					params: {
-						options: { address, decimals, image, symbol },
-						type,
-					},
-				} = req;
-				const { TokensController } = Engine.context;
-				const suggestionResult = await TokensController.watchAsset({ address, symbol, decimals, image }, type);
+      eth_signTypedData_v4: async () => {
+        const { TypedMessageManager } = Engine.context;
 
-				res.result = suggestionResult.result;
-			},
+        const data = JSON.parse(req.params[1]);
+        const chainId = data.domain.chainId;
 
-			metamask_removeFavorite: async () => {
-				if (!isHomepage()) {
-					throw ethErrors.provider.unauthorized('Forbidden.');
-				}
+        const pageMeta = {
+          meta: {
+            url: url.current,
+            title: title.current,
+            icon: icon.current,
+          },
+        };
 
-				const { bookmarks } = store.getState();
+        checkTabActive();
+        checkActiveAccountAndChainId({
+          address: req.params[0],
+          chainId,
+          activeAccounts: getAccounts(),
+        });
 
-				Alert.alert(strings('browser.remove_bookmark_title'), strings('browser.remove_bookmark_msg'), [
-					{
-						text: strings('browser.cancel'),
-						onPress: () => {
-							res.result = {
-								favorites: bookmarks,
-							};
-						},
-						style: 'cancel',
-					},
-					{
-						text: strings('browser.yes'),
-						onPress: () => {
-							const bookmark = { url: req.params[0] };
+        const rawSig = await TypedMessageManager.addUnapprovedMessageAsync(
+          {
+            data: req.params[1],
+            from: req.params[0],
+            ...pageMeta,
+            origin: hostname,
+          },
+          'V4',
+        );
 
-							store.dispatch(removeBookmark(bookmark));
+        res.result = rawSig;
+      },
 
-							res.result = {
-								favorites: bookmarks,
-							};
-						},
-					},
-				]);
-			},
+      web3_clientVersion: async () => {
+        if (!appVersion) {
+          appVersion = await getVersion();
+        }
+        res.result = `MetaMask/${appVersion}/Mobile`;
+      },
 
-			metamask_showTutorial: async () => {
-				wizardScrollAdjusted.current = false;
+      wallet_scanQRCode: () =>
+        new Promise<void>((resolve, reject) => {
+          checkTabActive();
+          navigation.navigate('QRScanner', {
+            onScanSuccess: (data: any) => {
+              const regex = new RegExp(req.params[0]);
+              if (regex && !regex.exec(data)) {
+                reject({ message: 'NO_REGEX_MATCH', data });
+              } else if (
+                !regex &&
+                !/^(0x){1}[0-9a-fA-F]{40}$/i.exec(data.target_address)
+              ) {
+                reject({
+                  message: 'INVALID_ETHEREUM_ADDRESS',
+                  data: data.target_address,
+                });
+              }
+              let result = data;
+              if (data.target_address) {
+                result = data.target_address;
+              } else if (data.scheme) {
+                result = JSON.stringify(data);
+              }
+              res.result = result;
+              resolve();
+            },
+            onScanError: (e: { toString: () => any }) => {
+              throw ethErrors.rpc.internal(e.toString());
+            },
+          });
+        }),
 
-				store.dispatch(setOnboardingWizardStep(1));
+      wallet_watchAsset: async () => {
+        const {
+          params: {
+            options: { address, decimals, image, symbol },
+            type,
+          },
+        } = req;
+        const { TokensController } = Engine.context;
 
-				navigation.navigate('WalletView');
+        checkTabActive();
+        try {
+          const watchAssetResult = await TokensController.watchAsset(
+            { address, symbol, decimals, image },
+            type,
+          );
+          await watchAssetResult.result;
+          res.result = true;
+        } catch (error) {
+          if (
+            (error as Error).message === 'User rejected to watch the asset.'
+          ) {
+            throw ethErrors.provider.userRejectedRequest();
+          }
+          throw error;
+        }
+      },
 
-				res.result = true;
-			},
+      metamask_removeFavorite: async () => {
+        checkTabActive();
+        if (!isHomepage()) {
+          throw ethErrors.provider.unauthorized('Forbidden.');
+        }
 
-			metamask_showAutocomplete: async () => {
-				fromHomepage.current = true;
-				setAutocompleteValue('');
-				setShowUrlModal(true);
+        const { bookmarks } = store.getState();
 
-				setTimeout(() => {
-					fromHomepage.current = false;
-				}, 1500);
+        Alert.alert(
+          strings('browser.remove_bookmark_title'),
+          strings('browser.remove_bookmark_msg'),
+          [
+            {
+              text: strings('browser.cancel'),
+              onPress: () => {
+                res.result = {
+                  favorites: bookmarks,
+                };
+              },
+              style: 'cancel',
+            },
+            {
+              text: strings('browser.yes'),
+              onPress: () => {
+                const bookmark = { url: req.params[0] };
 
-				res.result = true;
-			},
+                store.dispatch(removeBookmark(bookmark));
 
-			/**
-			 * This method is used by the inpage provider to get its state on
-			 * initialization.
-			 */
-			metamask_getProviderState: async () => {
-				res.result = {
-					...getProviderState(),
-					accounts: await getAccounts(),
-				};
-			},
+                const { bookmarks: updatedBookmarks } = store.getState();
 
-			/**
-			 * This method is sent by the window.web3 shim. It can be used to
-			 * record web3 shim usage metrics. These metrics are already collected
-			 * in the extension, and can optionally be added to mobile as well.
-			 *
-			 * For now, we need to respond to this method to not throw errors on
-			 * the page, and we implement it as a no-op.
-			 */
-			metamask_logWeb3ShimUsage: () => (res.result = null),
-			wallet_addEthereumChain: () =>
-				RPCMethods.wallet_addEthereumChain({
-					req,
-					res,
-					showAddCustomNetworkDialog,
-					showSwitchCustomNetworkDialog,
-					addCustomNetworkRequest,
-					switchCustomNetworkRequest,
-					setCustomNetworkToSwitch,
-					setShowSwitchCustomNetworkDialog,
-					setCustomNetworkToAdd,
-					setShowAddCustomNetworkDialog,
-				}),
-			wallet_switchEthereumChain: () =>
-				RPCMethods.wallet_switchEthereumChain({
-					req,
-					res,
-					showSwitchCustomNetworkDialog,
-					switchCustomNetworkRequest,
-					setCustomNetworkToSwitch,
-					setShowSwitchCustomNetworkDialog,
-				}),
-		};
+                if (isHomepage()) {
+                  injectHomePageScripts(updatedBookmarks);
+                }
 
-		const blockRefIndex = blockTagParamIndex(req);
-		if (blockRefIndex) {
-			const blockRef = req.params?.[blockRefIndex];
-			// omitted blockRef implies "latest"
-			if (blockRef === undefined) {
-				req.params[blockRefIndex] = 'latest';
-			}
-		}
+                res.result = {
+                  favorites: bookmarks,
+                };
+              },
+            },
+          ],
+        );
+      },
 
-		if (!rpcMethods[req.method]) {
-			return next();
-		}
-		await rpcMethods[req.method]();
-	});
+      metamask_showTutorial: async () => {
+        checkTabActive();
+        if (!isHomepage()) {
+          throw ethErrors.provider.unauthorized('Forbidden.');
+        }
+        wizardScrollAdjusted.current = false;
+
+        store.dispatch(setOnboardingWizardStep(1));
+
+        navigation.navigate('WalletView');
+
+        res.result = true;
+      },
+
+      metamask_showAutocomplete: async () => {
+        checkTabActive();
+        if (!isHomepage()) {
+          throw ethErrors.provider.unauthorized('Forbidden.');
+        }
+        fromHomepage.current = true;
+        toggleUrlModal(true);
+
+        setTimeout(() => {
+          fromHomepage.current = false;
+        }, 1500);
+
+        res.result = true;
+      },
+
+      metamask_injectHomepageScripts: async () => {
+        if (isHomepage()) {
+          injectHomePageScripts();
+        }
+        res.result = true;
+      },
+
+      /**
+       * This method is used by the inpage provider to get its state on
+       * initialization.
+       */
+      metamask_getProviderState: async () => {
+        res.result = {
+          ...getProviderState(),
+          accounts: await getAccounts(),
+        };
+      },
+
+      /**
+       * This method is sent by the window.web3 shim. It can be used to
+       * record web3 shim usage metrics. These metrics are already collected
+       * in the extension, and can optionally be added to mobile as well.
+       *
+       * For now, we need to respond to this method to not throw errors on
+       * the page, and we implement it as a no-op.
+       */
+      metamask_logWeb3ShimUsage: () => (res.result = null),
+      wallet_addEthereumChain: () => {
+        checkTabActive();
+        return RPCMethods.wallet_addEthereumChain({
+          req,
+          res,
+          requestUserApproval,
+        });
+      },
+
+      wallet_switchEthereumChain: () => {
+        checkTabActive();
+        return RPCMethods.wallet_switchEthereumChain({
+          req,
+          res,
+          requestUserApproval,
+        });
+      },
+    };
+
+    const blockRefIndex = blockTagParamIndex(req);
+    if (blockRefIndex) {
+      const blockRef = req.params?.[blockRefIndex];
+      // omitted blockRef implies "latest"
+      if (blockRef === undefined) {
+        req.params[blockRefIndex] = 'latest';
+      }
+    }
+
+    if (!rpcMethods[req.method]) {
+      return next();
+    }
+    await rpcMethods[req.method]();
+  });
 
 export default getRpcMethodMiddleware;
