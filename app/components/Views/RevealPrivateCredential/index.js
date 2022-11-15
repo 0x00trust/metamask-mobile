@@ -12,7 +12,7 @@ import {
   Linking,
   Platform,
 } from 'react-native';
-import AsyncStorage from '@react-native-community/async-storage';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import PropTypes from 'prop-types';
 import QRCode from 'react-native-qrcode-svg';
 import ScrollableTabView, {
@@ -25,6 +25,7 @@ import ButtonReveal from '../../UI/ButtonReveal';
 import { getNavigationOptionsTitle } from '../../UI/Navbar';
 import InfoModal from '../../UI/Swaps/components/InfoModal';
 import { showAlert } from '../../../actions/alert';
+import { recordSRPRevealTimestamp } from '../../../actions/privacy';
 import { WRONG_PASSWORD_ERROR } from '../../../constants/error';
 import { BIOMETRY_CHOICE } from '../../../constants/storage';
 import {
@@ -37,7 +38,7 @@ import { ThemeContext, mockTheme } from '../../../util/theme';
 import Engine from '../../../core/Engine';
 import PreventScreenshot from '../../../core/PreventScreenshot';
 import SecureKeychain from '../../../core/SecureKeychain';
-import { fontStyles } from '../../../styles/common';
+import { fontStyles, colors as importedColors } from '../../../styles/common';
 import AnalyticsV2 from '../../../util/analyticsV2';
 import Device from '../../../util/device';
 import { strings } from '../../../../locales/i18n';
@@ -145,6 +146,10 @@ const createStyles = (colors) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
+    qrCode: {
+      padding: 8,
+      backgroundColor: importedColors.white,
+    },
     tabUnderlineStyle: {
       height: 2,
       backgroundColor: colors.primary.default,
@@ -216,6 +221,10 @@ class RevealPrivateCredential extends PureComponent {
      * Boolean that indicates if navbar should be disabled
      */
     navBarDisabled: PropTypes.bool,
+    /**
+     * Action that records the timestamp when the SRP was revealed,
+     */
+    recordSRPRevealTimestamp: PropTypes.func,
   };
 
   updateNavBar = () => {
@@ -234,12 +243,17 @@ class RevealPrivateCredential extends PureComponent {
         navigation,
         false,
         colors,
+        AnalyticsV2.ANALYTICS_EVENTS.GO_BACK_SRP_SCREEN,
       ),
     );
   };
 
   async componentDidMount() {
     this.updateNavBar();
+    // Track SRP Reveal screen rendered
+    if (!this.isPrivateKey()) {
+      AnalyticsV2.trackEvent(AnalyticsV2.ANALYTICS_EVENTS.REVEAL_SRP_SCREEN);
+    }
     // Try to use biometrics to unloc
     // (if available)
     const biometryType = await SecureKeychain.getSupportedBiometryType();
@@ -285,6 +299,10 @@ class RevealPrivateCredential extends PureComponent {
         { view: 'Enter password' },
       );
 
+    if (!this.isPrivateKey())
+      AnalyticsV2.trackEvent(
+        AnalyticsV2.ANALYTICS_EVENTS.CANCEL_REVEAL_SRP_CTA,
+      );
     if (this.props.cancel) return this.props.cancel();
     this.navigateBack();
   };
@@ -292,6 +310,12 @@ class RevealPrivateCredential extends PureComponent {
   navigateBack = () => {
     const { navigation } = this.props;
     navigation.pop();
+  };
+
+  done = () => {
+    if (!this.isPrivateKey())
+      AnalyticsV2.trackEvent(AnalyticsV2.ANALYTICS_EVENTS.SRP_DONE_CTA);
+    this.navigateBack();
   };
 
   async tryUnlockWithPassword(password, privateCredentialName) {
@@ -302,7 +326,9 @@ class RevealPrivateCredential extends PureComponent {
     try {
       let privateCredential;
       if (!isPrivateKeyReveal) {
-        const mnemonic = await KeyringController.exportSeedPhrase(password);
+        const mnemonic = await KeyringController.exportSeedPhrase(
+          password,
+        ).toString();
         privateCredential = JSON.stringify(mnemonic).replace(/"/g, '');
       } else {
         privateCredential = await KeyringController.exportAccount(
@@ -339,7 +365,24 @@ class RevealPrivateCredential extends PureComponent {
   }
 
   tryUnlock = () => {
-    this.setState({ isModalVisible: true });
+    const { KeyringController } = Engine.context;
+    const { password } = this.state;
+    if (KeyringController.validatePassword(password)) {
+      if (!this.isPrivateKey()) {
+        const currentDate = new Date();
+        this.props.recordSRPRevealTimestamp(currentDate.toString());
+        AnalyticsV2.trackEvent(
+          AnalyticsV2.ANALYTICS_EVENTS.NEXT_REVEAL_SRP_CTA,
+        );
+      }
+      this.setState({
+        isModalVisible: true,
+        warningIncorrectPassword: '',
+      });
+    } else {
+      const msg = strings('reveal_credential.warning_incorrect_password');
+      this.setState({ warningIncorrectPassword: msg });
+    }
   };
 
   onPasswordChange = (password) => {
@@ -353,6 +396,9 @@ class RevealPrivateCredential extends PureComponent {
         : AnalyticsV2.ANALYTICS_EVENTS.REVEAL_SRP_COMPLETED,
       { action: 'copied to clipboard' },
     );
+
+    if (!this.isPrivateKey())
+      AnalyticsV2.trackEvent(AnalyticsV2.ANALYTICS_EVENTS.COPY_SRP);
 
     const { clipboardPrivateCredential } = this.state;
     await ClipboardManager.setStringExpire(clipboardPrivateCredential);
@@ -400,7 +446,7 @@ class RevealPrivateCredential extends PureComponent {
       <DefaultTabBar
         underlineStyle={styles.tabUnderlineStyle}
         activeTextColor={colors.primary.default}
-        inactiveTextColor={colors.text.muted}
+        inactiveTextColor={colors.text.alternative}
         backgroundColor={colors.background.default}
         tabStyle={styles.tabStyle}
         textStyle={styles.textStyle}
@@ -417,6 +463,9 @@ class RevealPrivateCredential extends PureComponent {
           : AnalyticsV2.ANALYTICS_EVENTS.REVEAL_SRP_COMPLETED,
         { action: 'viewed SRP' },
       );
+
+      if (!this.isPrivateKey())
+        AnalyticsV2.trackEvent(AnalyticsV2.ANALYTICS_EVENTS.VIEW_SRP);
     } else if (event.i === 1) {
       AnalyticsV2.trackEvent(
         this.isPrivateKey()
@@ -424,6 +473,9 @@ class RevealPrivateCredential extends PureComponent {
           : AnalyticsV2.ANALYTICS_EVENTS.REVEAL_SRP_COMPLETED,
         { action: 'viewed QR code' },
       );
+
+      if (!this.isPrivateKey())
+        AnalyticsV2.trackEvent(AnalyticsV2.ANALYTICS_EVENTS.VIEW_SRP_QR);
     }
   };
 
@@ -485,12 +537,12 @@ class RevealPrivateCredential extends PureComponent {
           style={styles.tabContent}
         >
           <View style={styles.qrCodeWrapper}>
-            <QRCode
-              value={clipboardPrivateCredential}
-              size={Dimensions.get('window').width - 160}
-              color={colors.text.default}
-              backgroundColor={colors.background.default}
-            />
+            <View style={styles.qrCode}>
+              <QRCode
+                value={clipboardPrivateCredential}
+                size={Dimensions.get('window').width - 176}
+              />
+            </View>
           </View>
         </View>
       </ScrollableTabView>
@@ -528,6 +580,11 @@ class RevealPrivateCredential extends PureComponent {
         : AnalyticsV2.ANALYTICS_EVENTS.REVEAL_SRP_CANCELLED,
       { view: 'Hold to reveal' },
     );
+
+    if (!this.isPrivateKey())
+      AnalyticsV2.trackEvent(
+        AnalyticsV2.ANALYTICS_EVENTS.SRP_DISMISS_HOLD_TO_REVEAL_DIALOG,
+      );
 
     this.setState({
       isModalVisible: false,
@@ -588,25 +645,25 @@ class RevealPrivateCredential extends PureComponent {
     const { styles } = this.getStyles();
     return (
       <Text style={styles.normalText}>
-        {strings('reveal_credential.seed_phrase_explanation')[0]}
-        <TouchableOpacity onPress={() => Linking.openURL(SRP_URL)}>
-          <Text style={[styles.blueText, styles.link]}>
-            {strings('reveal_credential.seed_phrase_explanation')[1]}
-          </Text>
-        </TouchableOpacity>
-        {strings('reveal_credential.seed_phrase_explanation')[2]}
+        {strings('reveal_credential.seed_phrase_explanation')[0]}{' '}
+        <Text
+          style={[styles.blueText, styles.link]}
+          onPress={() => Linking.openURL(SRP_URL)}
+        >
+          {strings('reveal_credential.seed_phrase_explanation')[1]}
+        </Text>{' '}
+        {strings('reveal_credential.seed_phrase_explanation')[2]}{' '}
         <Text style={styles.boldText}>
           {strings('reveal_credential.seed_phrase_explanation')[3]}
         </Text>
-        {strings('reveal_credential.seed_phrase_explanation')[4]}
-        <TouchableOpacity
+        {strings('reveal_credential.seed_phrase_explanation')[4]}{' '}
+        <Text
+          style={[styles.blueText, styles.link]}
           onPress={() => Linking.openURL(NON_CUSTODIAL_WALLET_URL)}
         >
-          <Text style={[styles.blueText, styles.link]}>
-            {strings('reveal_credential.seed_phrase_explanation')[5]}
-          </Text>
-        </TouchableOpacity>
-        {strings('reveal_credential.seed_phrase_explanation')[6]}
+          {strings('reveal_credential.seed_phrase_explanation')[5]}{' '}
+        </Text>
+        {strings('reveal_credential.seed_phrase_explanation')[6]}{' '}
         <Text style={styles.boldText}>
           {strings('reveal_credential.seed_phrase_explanation')[7]}
         </Text>
@@ -643,8 +700,14 @@ class RevealPrivateCredential extends PureComponent {
     );
   }
 
+  enableNextButton = () => {
+    const { KeyringController } = Engine.context;
+    const { password } = this.state;
+    return KeyringController.validatePassword(password);
+  };
+
   render = () => {
-    const { unlocked, password } = this.state;
+    const { unlocked } = this.state;
     const { styles } = this.getStyles();
     const privateCredentialName =
       this.props.privateCredentialName ||
@@ -663,11 +726,11 @@ class RevealPrivateCredential extends PureComponent {
               : strings('reveal_credential.cancel')
           }
           confirmText={strings('reveal_credential.confirm')}
-          onCancelPress={unlocked ? this.navigateBack : this.cancel}
+          onCancelPress={unlocked ? this.done : this.cancel}
           testID={`next-button`}
           onConfirmPress={() => this.tryUnlock()}
           showConfirmButton={!unlocked}
-          confirmDisabled={!password.length}
+          confirmDisabled={!this.enableNextButton()}
         >
           <>
             <View style={[styles.rowWrapper, styles.normalText]}>
@@ -704,6 +767,8 @@ const mapStateToProps = (state) => ({
 
 const mapDispatchToProps = (dispatch) => ({
   showAlert: (config) => dispatch(showAlert(config)),
+  recordSRPRevealTimestamp: (timestamp) =>
+    dispatch(recordSRPRevealTimestamp(timestamp)),
 });
 
 export default connect(

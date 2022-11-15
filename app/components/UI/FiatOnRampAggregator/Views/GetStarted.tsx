@@ -8,16 +8,15 @@ import { getFiatOnRampAggNavbar } from '../../Navbar';
 import { strings } from '../../../../../locales/i18n';
 import { useTheme } from '../../../../util/theme';
 import { useFiatOnRampSDK } from '../sdk';
-import ErrorViewWithReportingJS from '../components/ErrorViewWithReporting';
+import ErrorViewWithReporting from '../components/ErrorViewWithReporting';
 import Routes from '../../../../constants/navigation/Routes';
+import useAnalytics from '../hooks/useAnalytics';
 
 /* eslint-disable import/no-commonjs, @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports */
 const getStartedIcon = require('../components/images/WalletInfo.png');
 
 // TODO: Convert into typescript and correctly type optionals
 const Text = TextJS as any;
-
-const ErrorViewWithReporting = ErrorViewWithReportingJS as any;
 
 const styles = StyleSheet.create({
   listItem: {
@@ -53,9 +52,23 @@ const styles = StyleSheet.create({
 
 const GetStarted: React.FC = () => {
   const navigation = useNavigation();
-  const { getStarted, setGetStarted, sdkError } = useFiatOnRampSDK();
+  const {
+    getStarted,
+    setGetStarted,
+    sdkError,
+    selectedChainId,
+    selectedRegion,
+  } = useFiatOnRampSDK();
+  const trackEvent = useAnalytics();
 
   const { colors } = useTheme();
+
+  const handleCancelPress = useCallback(() => {
+    trackEvent('ONRAMP_CANCELED', {
+      location: 'Get Started Screen',
+      chain_id_destination: selectedChainId,
+    });
+  }, [selectedChainId, trackEvent]);
 
   useEffect(() => {
     navigation.setOptions(
@@ -66,9 +79,10 @@ const GetStarted: React.FC = () => {
           showBack: false,
         },
         colors,
+        handleCancelPress,
       ),
     );
-  }, [navigation, colors]);
+  }, [navigation, colors, handleCancelPress]);
 
   const handleOnPress = useCallback(() => {
     navigation.navigate(Routes.FIAT_ON_RAMP_AGGREGATOR.REGION);
@@ -77,18 +91,33 @@ const GetStarted: React.FC = () => {
 
   useEffect(() => {
     if (getStarted) {
-      navigation.reset({
-        index: 0,
-        routes: [{ name: Routes.FIAT_ON_RAMP_AGGREGATOR.REGION_HAS_STARTED }],
-      });
+      if (selectedRegion) {
+        navigation.reset({
+          index: 0,
+          routes: [
+            {
+              name: Routes.FIAT_ON_RAMP_AGGREGATOR.PAYMENT_METHOD_HAS_STARTED,
+              params: { showBack: false },
+            },
+          ],
+        });
+      } else {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: Routes.FIAT_ON_RAMP_AGGREGATOR.REGION_HAS_STARTED }],
+        });
+      }
     }
-  }, [getStarted, navigation]);
+  }, [getStarted, navigation, selectedRegion]);
 
   if (sdkError) {
     return (
       <ScreenLayout>
         <ScreenLayout.Body>
-          <ErrorViewWithReporting error={sdkError} />
+          <ErrorViewWithReporting
+            error={sdkError}
+            location={'Get Started Screen'}
+          />
         </ScreenLayout.Body>
       </ScreenLayout>
     );

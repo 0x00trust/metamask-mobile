@@ -28,22 +28,20 @@ import {
   calculateEthEIP1559,
   calculateERC20EIP1559,
 } from '../../../../util/transactions';
-import Analytics from '../../../../core/Analytics';
+import Analytics from '../../../../core/Analytics/Analytics';
 import { ANALYTICS_EVENT_OPTS } from '../../../../util/analytics';
-import {
-  getNetworkName,
-  getNetworkNonce,
-  isMainNet,
-} from '../../../../util/networks';
-import { capitalize } from '../../../../util/general';
+import { getNetworkNonce, isTestNet } from '../../../../util/networks';
 import CustomNonceModal from '../../../UI/CustomNonceModal';
 import { setNonce, setProposedNonce } from '../../../../actions/transaction';
-import TransactionReviewEIP1559 from '../TransactionReviewEIP1559';
+import TransactionReview from '../TransactionReviewEIP1559Update';
 import { GAS_ESTIMATE_TYPES } from '@metamask/controllers';
 import CustomNonce from '../../../UI/CustomNonce';
 import Logger from '../../../../util/Logger';
 import { ThemeContext, mockTheme } from '../../../../util/theme';
 import Routes from '../../../../constants/navigation/Routes';
+import AppConstants from '../../../../core/AppConstants';
+import WarningMessage from '../../../Views/SendFlow/WarningMessage';
+import { allowedToBuy } from '../../FiatOrders';
 
 const createStyles = (colors) =>
   StyleSheet.create({
@@ -106,6 +104,9 @@ const createStyles = (colors) =>
     underline: {
       textDecorationLine: 'underline',
       ...fontStyles.bold,
+    },
+    actionsWrapper: {
+      margin: 24,
     },
   });
 
@@ -184,7 +185,6 @@ class TransactionReviewInformation extends PureComponent {
     setProposedNonce: PropTypes.func,
     nativeCurrency: PropTypes.string,
     gasEstimateType: PropTypes.string,
-    EIP1559GasData: PropTypes.object,
     origin: PropTypes.string,
     /**
      * Function to call when update animation starts
@@ -206,6 +206,18 @@ class TransactionReviewInformation extends PureComponent {
      * If it's a eip1559 network and dapp suggest legact gas then it should show a warning
      */
     originWarning: PropTypes.bool,
+    gasSelected: PropTypes.string,
+    /**
+     * gas object for calculating the gas transaction cost
+     */
+    gasObject: PropTypes.object,
+    /**
+     * update gas transaction state to parent
+     */
+    updateTransactionState: PropTypes.func,
+    eip1559GasTransaction: PropTypes.object,
+    dappSuggestedEIP1559Gas: PropTypes.object,
+    dappSuggestedGasPrice: PropTypes.string,
   };
 
   state = {
@@ -338,6 +350,11 @@ class TransactionReviewInformation extends PureComponent {
     return totals[assetType] || totals.default;
   };
 
+  isTestNetwork = () => {
+    const { network } = this.props;
+    return isTestNet(network);
+  };
+
   getRenderTotalsEIP1559 = ({
     gasFeeMinNative,
     gasFeeMinConversion,
@@ -350,6 +367,7 @@ class TransactionReviewInformation extends PureComponent {
       currentCurrency,
       conversionRate,
       contractExchangeRates,
+      ticker,
     } = this.props;
 
     let renderableTotalMinNative,
@@ -381,7 +399,7 @@ class TransactionReviewInformation extends PureComponent {
           renderableTotalMaxNative,
           renderableTotalMaxConversion,
         ] = calculateEthEIP1559({
-          nativeCurrency,
+          nativeCurrency: this.isTestNetwork() ? ticker : nativeCurrency,
           currentCurrency,
           totalMinNative,
           totalMinConversion,
@@ -467,7 +485,7 @@ class TransactionReviewInformation extends PureComponent {
           renderableTotalMaxNative,
           renderableTotalMaxConversion,
         ] = calculateEthEIP1559({
-          nativeCurrency,
+          nativeCurrency: this.isTestNetwork() ? ticker : nativeCurrency,
           currentCurrency,
           totalMinNative,
           totalMinConversion,
@@ -500,12 +518,11 @@ class TransactionReviewInformation extends PureComponent {
     onCancelPress && onCancelPress();
   };
 
-  gotoFaucet = () => {
-    const mmFaucetUrl = 'https://faucet.metamask.io/';
+  goToFaucet = () => {
     InteractionManager.runAfterInteractions(() => {
       this.onCancelPress();
       this.props.navigation.navigate(Routes.BROWSER_VIEW, {
-        newTabUrl: mmFaucetUrl,
+        newTabUrl: AppConstants.URLS.MM_FAUCET,
         timestamp: Date.now(),
       });
     });
@@ -513,7 +530,6 @@ class TransactionReviewInformation extends PureComponent {
 
   renderTransactionReviewEIP1559 = () => {
     const {
-      EIP1559GasData,
       primaryCurrency,
       origin,
       originWarning,
@@ -522,37 +538,43 @@ class TransactionReviewInformation extends PureComponent {
       animateOnChange,
       isAnimating,
       ready,
+      gasSelected,
+      gasObject,
+      updateTransactionState,
+      eip1559GasTransaction,
+      dappSuggestedEIP1559Gas,
     } = this.props;
     let host;
     if (origin) {
       host = new URL(origin).hostname;
     }
+
     const [
       renderableTotalMinNative,
       renderableTotalMinConversion,
       renderableTotalMaxNative,
-    ] = this.getRenderTotalsEIP1559(EIP1559GasData)();
+    ] = this.getRenderTotalsEIP1559(eip1559GasTransaction)();
+
     return (
-      <TransactionReviewEIP1559
+      <TransactionReview
         totalNative={renderableTotalMinNative}
         totalConversion={renderableTotalMinConversion}
         totalMaxNative={renderableTotalMaxNative}
-        gasFeeNative={EIP1559GasData.renderableGasFeeMinNative}
-        gasFeeConversion={EIP1559GasData.renderableGasFeeMinConversion}
-        gasFeeMaxNative={EIP1559GasData.renderableGasFeeMaxNative}
-        gasFeeMaxConversion={EIP1559GasData.renderableGasFeeMaxConversion}
+        gasSelected={gasSelected}
         primaryCurrency={primaryCurrency}
-        timeEstimate={EIP1559GasData.timeEstimate}
-        timeEstimateColor={EIP1559GasData.timeEstimateColor}
-        timeEstimateId={EIP1559GasData.timeEstimateId}
         onEdit={this.edit}
-        origin={host}
-        originWarning={originWarning}
         onUpdatingValuesStart={onUpdatingValuesStart}
         onUpdatingValuesEnd={onUpdatingValuesEnd}
         animateOnChange={animateOnChange}
+        updateTransactionState={updateTransactionState}
         isAnimating={isAnimating}
+        origin={host}
+        originWarning={originWarning}
         gasEstimationReady={ready}
+        legacy={false}
+        gasObject={gasObject}
+        dappSuggestedEIP1559Gas={dappSuggestedEIP1559Gas}
+        onlyGas
       />
     );
   };
@@ -564,12 +586,16 @@ class TransactionReviewInformation extends PureComponent {
       transaction: { gas, gasPrice },
       currentCurrency,
       conversionRate,
-      ticker,
       over,
+      ticker,
       onUpdatingValuesStart,
       onUpdatingValuesEnd,
       animateOnChange,
       isAnimating,
+      gasSelected,
+      updateTransactionState,
+      gasObject,
+      dappSuggestedGasPrice,
     } = this.props;
 
     const totalGas =
@@ -580,21 +606,27 @@ class TransactionReviewInformation extends PureComponent {
       totalGas,
       totalGasFiat,
     )();
+
     return (
-      <TransactionReviewEIP1559
+      <TransactionReview
         totalNative={totalValue}
         totalConversion={totalFiat}
         gasFeeNative={totalGasEth}
         gasFeeConversion={totalGasFiat}
+        gasSelected={gasSelected}
         primaryCurrency={primaryCurrency}
-        onEdit={() => this.edit()}
-        over={over}
+        onEdit={this.edit}
         onUpdatingValuesStart={onUpdatingValuesStart}
         onUpdatingValuesEnd={onUpdatingValuesEnd}
         animateOnChange={animateOnChange}
         isAnimating={isAnimating}
         gasEstimationReady={ready}
         legacy
+        over={over}
+        updateTransactionState={updateTransactionState}
+        gasObject={gasObject}
+        dappSuggestedGasPrice={dappSuggestedGasPrice}
+        onlyGas
       />
     );
   };
@@ -606,21 +638,19 @@ class TransactionReviewInformation extends PureComponent {
       transaction: { warningGasPriceHigh },
       error,
       over,
-      network,
       showCustomNonce,
       gasEstimateType,
+      gasSelected,
+      network,
     } = this.props;
     const { nonce } = this.props.transaction;
     const colors = this.context.colors || mockTheme.colors;
     const styles = createStyles(colors);
 
-    const is_main_net = isMainNet(network);
-
-    const errorPress = is_main_net ? this.buyEth : this.gotoFaucet;
-    const networkName = capitalize(getNetworkName(network));
-    const errorLinkText = is_main_net
-      ? strings('transaction.buy_more_eth')
-      : strings('transaction.get_ether', { networkName });
+    const errorPress = this.isTestNetwork() ? this.goToFaucet : this.buyEth;
+    const errorLinkText = this.isTestNetwork()
+      ? strings('transaction.go_to_faucet')
+      : strings('transaction.buy_more');
 
     const showFeeMarket =
       !gasEstimateType ||
@@ -633,6 +663,12 @@ class TransactionReviewInformation extends PureComponent {
         {showFeeMarket
           ? this.renderTransactionReviewEIP1559()
           : this.renderTransactionReviewFeeCard()}
+        {gasSelected === AppConstants.GAS_OPTIONS.LOW && (
+          <WarningMessage
+            style={styles.actionsWrapper}
+            warningMessage={strings('edit_gas_fee_eip1559.low_fee_warning')}
+          />
+        )}
         {showCustomNonce && (
           <CustomNonce nonce={nonce} onNonceEdit={this.toggleNonceModal} />
         )}
@@ -650,15 +686,18 @@ class TransactionReviewInformation extends PureComponent {
         )}
         {!!error && (
           <View style={styles.errorWrapper}>
-            <TouchableOpacity onPress={errorPress}>
+            {this.isTestNetwork() || allowedToBuy(network) ? (
+              <TouchableOpacity onPress={errorPress}>
+                <Text style={styles.error}>{error}</Text>
+                {over && (
+                  <Text style={[styles.error, styles.underline]}>
+                    {errorLinkText}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            ) : (
               <Text style={styles.error}>{error}</Text>
-              {/* only show buy more on mainnet */}
-              {over && is_main_net && (
-                <Text style={[styles.error, styles.underline]}>
-                  {errorLinkText}
-                </Text>
-              )}
-            </TouchableOpacity>
+            )}
           </View>
         )}
         {!!warningGasPriceHigh && (

@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { connect } from 'react-redux';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+import { util as controllerUtils } from '@metamask/controllers';
 import ActionModal from '../../../UI/ActionModal';
 import Engine from '../../../../core/Engine';
 import StyledButton from '../../../UI/StyledButton';
@@ -37,6 +38,7 @@ import Logger from '../../../../util/Logger';
 import ipfsGateways from '../../../../util/ipfs-gateways.json';
 import SelectComponent from '../../../UI/SelectComponent';
 import { timeoutFetch } from '../../../../util/general';
+import { generateStateLogs } from '../../../../util/logs';
 import Device from '../../../../util/device';
 import { ThemeContext, mockTheme } from '../../../../util/theme';
 
@@ -147,7 +149,21 @@ class AdvancedSettings extends PureComponent {
      * Entire redux state used to generate state logs
      */
     fullState: PropTypes.object,
+    /**
+     * ChainID of network
+     */
+    chainId: PropTypes.string,
+    /**
+     * Boolean that checks if token detection is enabled
+     */
+    isTokenDetectionEnabled: PropTypes.bool,
+    /**
+     * Object that represents the current route info like params passed to it
+     */
+    route: PropTypes.object,
   };
+
+  scrollView = React.createRef();
 
   state = {
     resetModalVisible: false,
@@ -156,14 +172,21 @@ class AdvancedSettings extends PureComponent {
     gotAvailableGateways: false,
   };
 
-  updateNavBar = () => {
-    const { navigation } = this.props;
+  getStyles = () => {
     const colors = this.context.colors || mockTheme.colors;
+    const styles = createStyles(colors);
+    return { styles, colors };
+  };
+
+  updateNavBar = () => {
+    const { navigation, route } = this.props;
+    const { colors } = this.getStyles();
+    const isFullScreenModal = route?.params?.isFullScreenModal || false;
     navigation.setOptions(
       getNavigationOptionsTitle(
         strings('app_settings.advanced_title'),
         navigation,
-        false,
+        isFullScreenModal,
         colors,
       ),
     );
@@ -178,6 +201,9 @@ class AdvancedSettings extends PureComponent {
       setTimeout(() => {
         this.mounted && this.setState({ inputWidth: '100%' });
       }, 100);
+
+    this.props.route?.params?.scrollToBottom &&
+      this.scrollView?.current?.scrollToEnd({ animated: true });
   };
 
   componentDidUpdate = () => {
@@ -232,6 +258,7 @@ class AdvancedSettings extends PureComponent {
   };
 
   downloadStateLogs = async () => {
+    const { fullState } = this.props;
     const appName = await getApplicationName();
     const appVersion = await getVersion();
     const buildNumber = await getBuildNumber();
@@ -239,25 +266,9 @@ class AdvancedSettings extends PureComponent {
       RNFS.DocumentDirectoryPath +
       `/state-logs-v${appVersion}-(${buildNumber}).json`;
     // A not so great way to copy objects by value
-    const fullState = JSON.parse(JSON.stringify(this.props.fullState));
 
-    // Remove stuff we don't want to sync
-    delete fullState.engine.backgroundState.CollectiblesController;
-    delete fullState.engine.backgroundState.TokensController;
-    delete fullState.engine.backgroundState.AssetsContractController;
-    delete fullState.engine.backgroundState.TokenDetectionController;
-    delete fullState.engine.backgroundState.CollectibleDetectionController;
-    delete fullState.engine.backgroundState.PhishingController;
-    delete fullState.engine.backgroundState.AssetsContractController;
-
-    // Remove encrypted vault from logs
-    delete fullState.engine.backgroundState.KeyringController.vault;
-
-    // Add extra stuff
-    fullState.engine.backgroundState.KeyringController.keyrings =
-      Engine.context.KeyringController.state.keyrings;
     try {
-      const data = JSON.stringify(fullState);
+      const data = generateStateLogs(fullState);
 
       let url = `data:text/plain;base64,${new Buffer(data).toString('base64')}`;
       // // Android accepts attachements as BASE64
@@ -281,6 +292,43 @@ class AdvancedSettings extends PureComponent {
     PreferencesController.setIpfsGateway(ipfsGateway);
   };
 
+  toggleTokenDetection = (detectionStatus) => {
+    const { PreferencesController } = Engine.context;
+    PreferencesController.setUseTokenDetection(detectionStatus);
+  };
+
+  renderTokenDetectionSection = () => {
+    const { isTokenDetectionEnabled, chainId } = this.props;
+    const { styles, colors } = this.getStyles();
+    if (!controllerUtils.isTokenDetectionSupportedForNetwork(chainId)) {
+      return null;
+    }
+    return (
+      <View style={styles.setting} testID={'token-detection-section'}>
+        <Text style={styles.title}>
+          {strings('app_settings.token_detection_title')}
+        </Text>
+        <Text style={styles.desc}>
+          {strings('app_settings.token_detection_description')}
+        </Text>
+        <View style={styles.marginTop}>
+          <View style={styles.switch}>
+            <Switch
+              value={isTokenDetectionEnabled}
+              onValueChange={this.toggleTokenDetection}
+              trackColor={{
+                true: colors.primary.default,
+                false: colors.border.muted,
+              }}
+              thumbColor={importedColors.white}
+              ios_backgroundColor={colors.border.muted}
+            />
+          </View>
+        </View>
+      </View>
+    );
+  };
+
   render = () => {
     const {
       showHexData,
@@ -290,14 +338,14 @@ class AdvancedSettings extends PureComponent {
       ipfsGateway,
     } = this.props;
     const { resetModalVisible, onlineIpfsGateways } = this.state;
-    const colors = this.context.colors || mockTheme.colors;
-    const styles = createStyles(colors);
+    const { styles, colors } = this.getStyles();
 
     return (
       <SafeAreaView style={baseStyles.flexGrow}>
         <KeyboardAwareScrollView
           style={styles.wrapper}
           resetScrollToCoords={{ x: 0, y: 0 }}
+          ref={this.scrollView}
         >
           <View style={styles.inner}>
             <ActionModal
@@ -397,6 +445,7 @@ class AdvancedSettings extends PureComponent {
                 />
               </View>
             </View>
+            {this.renderTokenDetectionSection()}
             <View style={styles.setting}>
               <Text style={styles.title}>
                 {strings('app_settings.state_logs')}
@@ -426,6 +475,9 @@ const mapStateToProps = (state) => ({
   showHexData: state.settings.showHexData,
   showCustomNonce: state.settings.showCustomNonce,
   fullState: state,
+  isTokenDetectionEnabled:
+    state.engine.backgroundState.PreferencesController.useTokenDetection,
+  chainId: state.engine.backgroundState.NetworkController.provider.chainId,
 });
 
 const mapDispatchToProps = (dispatch) => ({

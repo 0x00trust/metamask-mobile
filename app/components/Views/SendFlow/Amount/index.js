@@ -57,7 +57,7 @@ import collectiblesTransferInformation from '../../../../util/collectibles-trans
 import { strings } from '../../../../../locales/i18n';
 import Device from '../../../../util/device';
 import { BN } from 'ethereumjs-util';
-import Analytics from '../../../../core/Analytics';
+import Analytics from '../../../../core/Analytics/Analytics';
 import { ANALYTICS_EVENT_OPTS } from '../../../../util/analytics';
 import dismissKeyboard from 'react-native/Libraries/Utilities/dismissKeyboard';
 import NetworkMainAssetLogo from '../../../UI/NetworkMainAssetLogo';
@@ -655,11 +655,14 @@ class Amount extends PureComponent {
         amount: BNToHex(tokenAmount),
       });
       transactionObject.value = '0x0';
+      transactionObject.to = selectedAsset.address;
     }
 
     if (selectedAsset.erc20) {
       transactionObject.readableValue = value;
     }
+
+    if (selectedAsset.isETH) transactionObject.to = transactionTo;
 
     setTransactionObject(transactionObject);
   };
@@ -1128,7 +1131,11 @@ class Amount extends PureComponent {
                 style={styles.actionSwitch}
                 onPress={this.switchCurrency}
               >
-                <Text style={styles.textSwitch} numberOfLines={1}>
+                <Text
+                  style={styles.textSwitch}
+                  numberOfLines={1}
+                  testID={'txn-amount-conversion-value'}
+                >
                   {renderableInputValueConversion}
                 </Text>
                 <View styles={styles.switchWrapper}>

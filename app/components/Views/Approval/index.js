@@ -9,7 +9,7 @@ import { getTransactionOptionsTitle } from '../../UI/Navbar';
 import { resetTransaction } from '../../../actions/transaction';
 import { connect } from 'react-redux';
 import NotificationManager from '../../../core/NotificationManager';
-import Analytics from '../../../core/Analytics';
+import Analytics from '../../../core/Analytics/Analytics';
 import { ANALYTICS_EVENT_OPTS } from '../../../util/analytics';
 import {
   getTransactionReviewActionKey,
@@ -28,6 +28,13 @@ import AnalyticsV2 from '../../../util/analyticsV2';
 import { GAS_ESTIMATE_TYPES } from '@metamask/controllers';
 import { KEYSTONE_TX_CANCELED } from '../../../constants/error';
 import { ThemeContext, mockTheme } from '../../../util/theme';
+import {
+  TX_CANCELLED,
+  TX_CONFIRMED,
+  TX_FAILED,
+  TX_SUBMITTED,
+  TX_REJECTED,
+} from '../../../constants/transaction';
 
 const REVIEW = 'review';
 const EDIT = 'edit';
@@ -136,12 +143,30 @@ class Approval extends PureComponent {
     }
   };
 
+  isTxStatusCancellable = (transaction) => {
+    if (
+      transaction?.status === TX_SUBMITTED ||
+      transaction?.status === TX_REJECTED ||
+      transaction?.status === TX_CONFIRMED ||
+      transaction?.status === TX_CANCELLED ||
+      transaction?.status === TX_FAILED
+    ) {
+      return false;
+    }
+    return true;
+  };
+
   handleAppStateChange = (appState) => {
     try {
       if (appState !== 'active') {
-        const { transaction } = this.props;
+        const { transaction, transactions } = this.props;
+        const currentTransaction = transactions.find(
+          (tx) => tx.id === transaction.id,
+        );
+
         transaction &&
           transaction.id &&
+          this.isTxStatusCancellable(currentTransaction) &&
           Engine.context.TransactionController.cancelTransaction(
             transaction.id,
           );
@@ -258,7 +283,7 @@ class Approval extends PureComponent {
     const { transaction } = this.props;
     InteractionManager.runAfterInteractions(() => {
       transaction.origin &&
-        transaction.origin.includes(WALLET_CONNECT_ORIGIN) &&
+        transaction.origin.startsWith(WALLET_CONNECT_ORIGIN) &&
         NotificationManager.showSimpleNotification({
           status: `simple_notification${!confirmation ? '_rejected' : ''}`,
           duration: 5000,
@@ -283,7 +308,11 @@ class Approval extends PureComponent {
   /**
    * Callback on confirm transaction
    */
-  onConfirm = async ({ gasEstimateType, EIP1559GasData, gasSelected }) => {
+  onConfirm = async ({
+    gasEstimateType,
+    eip1559GasTransaction,
+    gasSelected,
+  }) => {
     const { TransactionController, KeyringController } = Engine.context;
     const {
       transactions,
@@ -301,14 +330,14 @@ class Approval extends PureComponent {
         transaction = this.prepareTransaction({
           transaction,
           gasEstimateType,
-          EIP1559GasData,
+          eip1559GasTransaction,
         });
       } else {
         transaction = this.prepareAssetTransaction({
           transaction,
           selectedAsset,
           gasEstimateType,
-          EIP1559GasData,
+          eip1559GasTransaction,
         });
       }
 
@@ -380,7 +409,11 @@ class Approval extends PureComponent {
    *
    * @param {object} transaction - Transaction object
    */
-  prepareTransaction = ({ transaction, gasEstimateType, EIP1559GasData }) => {
+  prepareTransaction = ({
+    transaction,
+    gasEstimateType,
+    eip1559GasTransaction,
+  }) => {
     const transactionToSend = {
       ...transaction,
       value: BNToHex(transaction.value),
@@ -388,12 +421,12 @@ class Approval extends PureComponent {
     };
 
     if (gasEstimateType === GAS_ESTIMATE_TYPES.FEE_MARKET) {
-      transactionToSend.gas = EIP1559GasData.gasLimitHex;
+      transactionToSend.gas = eip1559GasTransaction.gasLimitHex;
       transactionToSend.maxFeePerGas = addHexPrefix(
-        EIP1559GasData.suggestedMaxFeePerGasHex,
+        eip1559GasTransaction.suggestedMaxFeePerGasHex,
       ); //'0x2540be400'
       transactionToSend.maxPriorityFeePerGas = addHexPrefix(
-        EIP1559GasData.suggestedMaxPriorityFeePerGasHex,
+        eip1559GasTransaction.suggestedMaxPriorityFeePerGasHex,
       ); //'0x3b9aca00';
       transactionToSend.to = safeToChecksumAddress(transaction.to);
       delete transactionToSend.gasPrice;
@@ -416,7 +449,7 @@ class Approval extends PureComponent {
     transaction,
     selectedAsset,
     gasEstimateType,
-    EIP1559GasData,
+    eip1559GasTransaction,
   }) => {
     const transactionToSend = {
       ...transaction,
@@ -425,12 +458,12 @@ class Approval extends PureComponent {
     };
 
     if (gasEstimateType === GAS_ESTIMATE_TYPES.FEE_MARKET) {
-      transactionToSend.gas = EIP1559GasData.gasLimitHex;
+      transactionToSend.gas = eip1559GasTransaction.gasLimitHex;
       transactionToSend.maxFeePerGas = addHexPrefix(
-        EIP1559GasData.suggestedMaxFeePerGasHex,
+        eip1559GasTransaction.suggestedMaxFeePerGasHex,
       ); //'0x2540be400'
       transactionToSend.maxPriorityFeePerGas = addHexPrefix(
-        EIP1559GasData.suggestedMaxPriorityFeePerGasHex,
+        eip1559GasTransaction.suggestedMaxPriorityFeePerGasHex,
       ); //'0x3b9aca00';
       delete transactionToSend.gasPrice;
     } else {

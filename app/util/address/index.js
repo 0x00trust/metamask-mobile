@@ -1,9 +1,24 @@
-import { toChecksumAddress, isValidAddress } from 'ethereumjs-util';
+import {
+  toChecksumAddress,
+  isValidAddress,
+  isHexString,
+  addHexPrefix,
+  isValidChecksumAddress,
+} from 'ethereumjs-util';
+import URL from 'url-parse';
+import punycode from 'punycode/punycode';
+import { KeyringTypes } from '@metamask/controllers';
 import Engine from '../../core/Engine';
 import { strings } from '../../../locales/i18n';
 import { tlc } from '../general';
-import punycode from 'punycode/punycode';
-import { KeyringTypes } from '@metamask/controllers';
+import { doENSLookup, doENSReverseLookup } from '../../util/ENSUtils';
+import NetworkList from '../../util/networks';
+import { collectConfusables } from '../../util/confusables';
+import {
+  CONTACT_ALREADY_SAVED,
+  SYMBOL_ERROR,
+} from '../../../app/constants/error';
+import { PROTOCOLS } from '../../constants/deeplinks';
 
 /**
  * Returns full checksummed address
@@ -94,14 +109,17 @@ export function renderAccountName(address, identities) {
  */
 
 export async function importAccountFromPrivateKey(private_key) {
+  const { KeyringController, PreferencesController } = Engine.context;
   // Import private key
   let pkey = private_key;
   // Handle PKeys with 0x
   if (pkey.length === 66 && pkey.substr(0, 2) === '0x') {
     pkey = pkey.substr(2);
   }
-  const { KeyringController } = Engine.context;
-  return KeyringController.importAccountWithStrategy('privateKey', [pkey]);
+  const { importedAccountAddress } =
+    await KeyringController.importAccountWithStrategy('privateKey', [pkey]);
+  const checksummedAddress = safeToChecksumAddress(importedAccountAddress);
+  return PreferencesController.setSelectedAddress(checksummedAddress);
 }
 
 /**
@@ -193,4 +211,216 @@ export function resemblesAddress(address) {
 export function safeToChecksumAddress(address) {
   if (!address) return undefined;
   return toChecksumAddress(address);
+}
+
+/**
+ * Validates that the input is a hex address. This utility method is a thin
+ * wrapper around ethereumjs-util.isValidAddress, with the exception that it
+ * does not throw an error when provided values that are not hex strings. In
+ * addition, and by default, this method will return true for hex strings that
+ * meet the length requirement of a hex address, but are not prefixed with `0x`
+ * Finally, if the mixedCaseUseChecksum flag is true and a mixed case string is
+ * provided this method will validate it has the proper checksum formatting.
+ *
+ * @param {string} possibleAddress - Input parameter to check against
+ * @param {Object} [options] - options bag
+ * @param {boolean} [options.allowNonPrefixed] - If true will first ensure '0x'
+ *  is prepended to the string
+ * @param {boolean} [options.mixedCaseUseChecksum] - If true will treat mixed
+ *  case addresses as checksum addresses and validate that proper checksum
+ *  format is used
+ * @returns {boolean} whether or not the input is a valid hex address
+ */
+export function isValidHexAddress(
+  possibleAddress,
+  { allowNonPrefixed = false, mixedCaseUseChecksum = false } = {},
+) {
+  const addressToCheck = allowNonPrefixed
+    ? addHexPrefix(possibleAddress)
+    : possibleAddress;
+  if (!isHexString(addressToCheck)) {
+    return false;
+  }
+
+  if (mixedCaseUseChecksum) {
+    const prefixRemoved = addressToCheck.slice(2);
+    const lower = prefixRemoved.toLowerCase();
+    const upper = prefixRemoved.toUpperCase();
+    const allOneCase = prefixRemoved === lower || prefixRemoved === upper;
+    if (!allOneCase) {
+      return isValidChecksumAddress(addressToCheck);
+    }
+  }
+  return isValidAddress(addressToCheck);
+}
+
+/**
+ *
+ * @param {Object} params - Contains multiple variables that are needed to
+ * check if the address is already saved in our contact list or in our accounts
+ * Variables:
+ *  address (String) - Represents the address of the account
+ *  addressBook (Object) -  Represents all the contacts that we have saved on the address book
+ *  identities (Object) - Represents our accounts on the current network of the wallet
+ * @returns String | undefined - When it is saved returns a string "contactAlreadySaved" if it's not reutrn undefined
+ */
+function checkIfAddressAlreadySaved(params) {
+  const { address, addressBook, network, identities } = params;
+  if (address) {
+    const networkAddressBook = addressBook[network] || {};
+
+    const checksummedResolvedAddress = toChecksumAddress(address);
+    if (
+      networkAddressBook[checksummedResolvedAddress] ||
+      identities[checksummedResolvedAddress]
+    ) {
+      return CONTACT_ALREADY_SAVED;
+    }
+  }
+  return false;
+}
+
+/**
+ *
+ * @param {Object} params - Contains multiple variables that are needed to validate an address or ens
+ * This function is needed in two place of the app, SendTo of SendFlow in order to send tokes and
+ * is present in ContactForm of Contatcs, in order to add a new contact
+ * Variables:
+ *  toAccount (String) - Represents the account address or ens
+ *  network (String) - Represents the current network chainId
+ *  addressBook (Object) - Represents all the contacts that we have saved on the address book
+ *  identities (Object) - Represents our accounts on the current network of the wallet
+ *  providerType (String) - Represents the network name
+ * @returns the variables that are needed for updating the state of the two flows metioned above
+ * Variables:
+ *  addressError (String) - Contains the message or the error
+ *  toEnsName (String) - Represents the ens name of the destination account
+ *  addressReady (Bollean) - Represents if the address is validated or not
+ *  toEnsAddress (String) - Represents the address of the ens inserted
+ *  addToAddressToAddressBook (Boolean) - Represents if the address it can be add to the address book
+ *  toAddressName (String) - Represents the address of the destination account
+ *  errorContinue (Boolean) - Represents if with one error we can proceed or not to the next step if we wish
+ *  confusableCollection (Object) - Represents one array with the confusable characters of the ens
+ *
+ */
+export async function validateAddressOrENS(params) {
+  const { toAccount, network, addressBook, identities, providerType } = params;
+  const { AssetsContractController } = Engine.context;
+
+  let addressError,
+    toEnsName,
+    toEnsAddress,
+    toAddressName,
+    errorContinue,
+    confusableCollection;
+
+  let [addressReady, addToAddressToAddressBook] = [false, false];
+
+  if (isValidHexAddress(toAccount, { mixedCaseUseChecksum: true })) {
+    const contactAlreadySaved = checkIfAddressAlreadySaved({
+      address: toAccount,
+      addressBook,
+      network,
+      identities,
+    });
+
+    if (contactAlreadySaved) {
+      addressError = checkIfAddressAlreadySaved(toAccount);
+    }
+    const checksummedAddress = toChecksumAddress(toAccount);
+    addressReady = true;
+    const ens = await doENSReverseLookup(checksummedAddress);
+    if (ens) {
+      toAddressName = ens;
+      if (!contactAlreadySaved) {
+        addToAddressToAddressBook = true;
+      }
+    } else if (!contactAlreadySaved) {
+      toAddressName = toAccount;
+      // If not in the addressBook nor user accounts
+      addToAddressToAddressBook = true;
+    }
+
+    if (providerType) {
+      // Check if it's token contract address on mainnet
+      const networkId = NetworkList[providerType].networkId;
+      if (networkId === NetworkList.mainnet.chainId) {
+        try {
+          const symbol = await AssetsContractController.getERC721AssetSymbol(
+            checksummedAddress,
+          );
+          if (symbol) {
+            addressError = SYMBOL_ERROR;
+            errorContinue = true;
+          }
+        } catch (e) {
+          // Not a token address
+        }
+      }
+    }
+    /**
+     * Not using this for now; Import isSmartContractAddress from util/transactions and use this for checking smart contract: await isSmartContractAddress(toSelectedAddress);
+     * Check if it's smart contract address
+     */
+    /*
+			const smart = false; //
+
+			if (smart) {
+				addressError = strings('transaction.smartContractAddressWarning');
+				isOnlyWarning = true;
+			}
+			*/
+  } else if (isENS(toAccount)) {
+    toEnsName = toAccount;
+    confusableCollection = collectConfusables(toEnsName);
+    const resolvedAddress = await doENSLookup(toAccount, network);
+    const contactAlreadySaved = checkIfAddressAlreadySaved({
+      address: resolvedAddress,
+      addressBook,
+      network,
+      identities,
+    });
+
+    if (resolvedAddress) {
+      if (!contactAlreadySaved) {
+        addToAddressToAddressBook = true;
+      } else {
+        addressError = contactAlreadySaved;
+      }
+
+      toAddressName = toAccount;
+      toEnsAddress = resolvedAddress;
+      addressReady = true;
+    } else {
+      addressError = strings('transaction.could_not_resolve_ens');
+    }
+  } else if (toAccount && toAccount.length >= 42) {
+    addressError = strings('transaction.invalid_address');
+  }
+
+  return {
+    addressError,
+    toEnsName,
+    addressReady,
+    toEnsAddress,
+    addToAddressToAddressBook,
+    toAddressName,
+    errorContinue,
+    confusableCollection,
+  };
+}
+/** Method to evaluate if an input is a valid ethereum address
+ * via QR code scanning.
+ *
+ * @param {string} input - a random string.
+ * @returns {boolean} indicates if the string is a valid input.
+ */
+export function isValidAddressInputViaQRCode(input) {
+  if (input.includes(PROTOCOLS.ETHEREUM)) {
+    const { pathname } = new URL(input);
+    // eslint-disable-next-line no-unused-vars
+    const [address, _] = pathname.split('@');
+    return isValidHexAddress(address);
+  }
+  return isValidHexAddress(input);
 }

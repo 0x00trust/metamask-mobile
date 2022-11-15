@@ -15,7 +15,7 @@ import QRCode from 'react-native-qrcode-svg';
 import EvilIcons from 'react-native-vector-icons/EvilIcons';
 import { connect } from 'react-redux';
 
-import Analytics from '../../../core/Analytics';
+import Analytics from '../../../core/Analytics/Analytics';
 import AnalyticsV2 from '../../../util/analyticsV2';
 import Logger from '../../../util/Logger';
 import Device from '../../../util/device';
@@ -28,7 +28,7 @@ import { showAlert } from '../../../actions/alert';
 import { toggleReceiveModal } from '../../../actions/modals';
 import { protectWalletModalVisible } from '../../../actions/user';
 
-import { fontStyles } from '../../../styles/common';
+import { fontStyles, colors as importedColors } from '../../../styles/common';
 import Text from '../../Base/Text';
 import ModalHandler from '../../Base/ModalHandler';
 import ModalDragger from '../../Base/ModalDragger';
@@ -38,6 +38,7 @@ import GlobalAlert from '../GlobalAlert';
 import StyledButton from '../StyledButton';
 import ClipboardManager from '../../../core/ClipboardManager';
 import { ThemeContext, mockTheme } from '../../../util/theme';
+import Routes from '../../../constants/navigation/Routes';
 
 const createStyles = (colors) =>
   StyleSheet.create({
@@ -51,7 +52,9 @@ const createStyles = (colors) =>
       paddingHorizontal: 15,
     },
     qrWrapper: {
-      margin: 15,
+      margin: 8,
+      padding: 8,
+      backgroundColor: importedColors.white,
     },
     addressWrapper: {
       flexDirection: 'row',
@@ -63,13 +66,15 @@ const createStyles = (colors) =>
       borderRadius: 30,
     },
     copyButton: {
-      backgroundColor: colors.icon.muted,
-      color: colors.text.default,
+      backgroundColor: colors.background.default,
+      color: colors.primary.default,
       borderRadius: 12,
       overflow: 'hidden',
       paddingVertical: 3,
       paddingHorizontal: 6,
       marginHorizontal: 6,
+      borderWidth: 1,
+      borderColor: colors.primary.default,
     },
     actionRow: {
       flexDirection: 'row',
@@ -180,13 +185,16 @@ class ReceiveRequest extends PureComponent {
       );
     } else {
       toggleReceiveModal();
-      navigation.navigate('FiatOnRampAggregator');
+      navigation.navigate(Routes.FIAT_ON_RAMP_AGGREGATOR.ID);
       InteractionManager.runAfterInteractions(() => {
-        Analytics.trackEvent(ANALYTICS_EVENT_OPTS.WALLET_BUY_ETH);
-        AnalyticsV2.trackEvent(AnalyticsV2.ANALYTICS_EVENTS.ONRAMP_OPENED, {
-          button_location: 'Receive Modal',
-          button_copy: `Buy ${this.props.ticker}`,
-        });
+        Analytics.trackEventWithParameters(
+          AnalyticsV2.ANALYTICS_EVENTS.BUY_BUTTON_CLICKED,
+          {
+            text: 'Buy Native Token',
+            location: 'Receive Modal',
+            chain_id_destination: this.props.chainId,
+          },
+        );
       });
     }
   };
@@ -268,8 +276,6 @@ class ReceiveRequest extends PureComponent {
                   <QRCode
                     value={`ethereum:${this.props.selectedAddress}@${this.props.chainId}`}
                     size={Dimensions.get('window').width / 2}
-                    color={colors.text.default}
-                    backgroundColor={colors.background.default}
                   />
                 </TouchableOpacity>
                 <Modal
@@ -311,7 +317,7 @@ class ReceiveRequest extends PureComponent {
               <EvilIcons
                 name={Device.isIos() ? 'share-apple' : 'share-google'}
                 size={25}
-                color={colors.icon.default}
+                color={colors.primary.default}
               />
             </TouchableOpacity>
           </TouchableOpacity>

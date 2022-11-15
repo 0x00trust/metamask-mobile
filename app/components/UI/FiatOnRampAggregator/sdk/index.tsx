@@ -28,6 +28,8 @@ import {
   setFiatOrdersPaymentMethodAGG,
 } from '../../../../reducers/fiatOrders';
 import { Region } from '../types';
+
+import I18n, { I18nEvents } from '../../../../../locales/i18n';
 interface IFiatOnRampSDKConfig {
   POLLING_INTERVAL: number;
   POLLING_INTERVAL_HIGHLIGHT: number;
@@ -57,6 +59,7 @@ export interface IFiatOnRampSDK {
   selectedChainId: string;
 
   appConfig: IFiatOnRampSDKConfig;
+  callbackBaseUrl: string;
 }
 
 interface IProviderProps<T> {
@@ -67,18 +70,32 @@ interface IProviderProps<T> {
 const isDevelopment = process.env.NODE_ENV !== 'production';
 const VERBOSE_SDK = isDevelopment;
 
+const ACTIVATION_KEYS = process.env.ONRAMP_ACTIVATION_KEYS?.split(',') || [];
+
 export const SDK = OnRampSdk.create(
   isDevelopment ? Environment.Staging : Environment.Production,
   Context.Mobile,
   {
     verbose: VERBOSE_SDK,
+    locale: I18n.locale,
+    activationKeys: ACTIVATION_KEYS,
   },
 );
+
+I18nEvents.addListener('localeChanged', (locale) => {
+  SDK.setLocale(locale);
+});
+
+export const callbackBaseUrl = isDevelopment
+  ? 'https://on-ramp.metaswap-dev.codefi.network/regions/fake-callback'
+  : 'https://on-ramp-content.metaswap.codefi.network/regions/fake-callback';
+
+export const callbackBaseDeeplink = 'metamask://';
 
 const appConfig = {
   POLLING_INTERVAL: 20000,
   POLLING_INTERVAL_HIGHLIGHT: 10000,
-  POLLING_CYCLES: 3,
+  POLLING_CYCLES: 6,
 };
 
 const SDKContext = createContext<IFiatOnRampSDK | undefined>(undefined);
@@ -96,6 +113,10 @@ export const FiatOnRampSDKProvider = ({
         const sdk = await SDK.regions();
         setSdkModule(sdk);
       } catch (error) {
+        Logger.error(
+          error as Error,
+          `FiatOnRampSDKProvider SDK.regions() failed`,
+        );
         setSdkError(error as Error);
       }
     })();
@@ -112,7 +133,7 @@ export const FiatOnRampSDKProvider = ({
   const selectedAddress: string = useSelector(selectedAddressSelector);
   const selectedChainId: string = useSelector(chainIdSelector);
 
-  const INITIAL_PAYMENT_METHOD: string | null = useSelector(
+  const INITIAL_PAYMENT_METHOD_ID: string | null = useSelector(
     fiatOrdersPaymentMethodSelectorAgg,
   );
   const INITIAL_SELECTED_ASSET = null;
@@ -120,7 +141,7 @@ export const FiatOnRampSDKProvider = ({
   const [selectedRegion, setSelectedRegion] = useState(INITIAL_SELECTED_REGION);
   const [selectedAsset, setSelectedAsset] = useState(INITIAL_SELECTED_ASSET);
   const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState(
-    INITIAL_PAYMENT_METHOD,
+    INITIAL_PAYMENT_METHOD_ID,
   );
   const [selectedFiatCurrencyId, setSelectedFiatCurrencyId] = useState(null);
   const [getStarted, setGetStarted] = useState(INITIAL_GET_STARTED);
@@ -180,6 +201,7 @@ export const FiatOnRampSDKProvider = ({
     selectedChainId,
 
     appConfig,
+    callbackBaseUrl,
   };
 
   return <SDKContext.Provider value={value || contextValue} {...props} />;

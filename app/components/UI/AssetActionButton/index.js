@@ -6,7 +6,7 @@ import Ionicon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
 import Device from '../../../util/device';
 import Text from '../../Base/Text';
-import { useAppThemeFromContext, mockTheme } from '../../../util/theme';
+import { useTheme } from '../../../util/theme';
 
 const createStyles = (colors) =>
   StyleSheet.create({
@@ -38,6 +38,7 @@ const createStyles = (colors) =>
     },
     buttonText: {
       marginTop: 8,
+      marginHorizontal: 3,
       color: colors.primary.default,
       fontSize: 14,
     },
@@ -57,8 +58,10 @@ const createStyles = (colors) =>
   });
 
 function AssetActionButton({ onPress, icon, label, disabled }) {
-  const { colors } = useAppThemeFromContext() || mockTheme;
+  const { colors } = useTheme();
   const styles = createStyles(colors);
+
+  const maxStringLength = 10;
 
   const getIcon = (type) => {
     switch (type) {
@@ -123,7 +126,9 @@ function AssetActionButton({ onPress, icon, label, disabled }) {
         {icon && (typeof icon === 'string' ? getIcon(icon) : icon)}
       </View>
       <Text centered style={styles.buttonText} numberOfLines={1}>
-        {label}
+        {label.length > maxStringLength
+          ? `${label.substring(0, maxStringLength - 3)}...`
+          : label}
       </Text>
     </TouchableOpacity>
   );

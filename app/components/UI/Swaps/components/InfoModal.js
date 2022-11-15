@@ -2,13 +2,12 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { StyleSheet, View, TouchableOpacity, SafeAreaView } from 'react-native';
 import Modal from 'react-native-modal';
-import Text from '../../../Base/Text';
 import IonicIcon from 'react-native-vector-icons/Ionicons';
-import { colors as importedColors } from '../../../../styles/common';
+import Text from '../../../Base/Text';
 import Title from '../../../Base/Title';
-import { useAppThemeFromContext, mockTheme } from '../../../../util/theme';
+import { useTheme } from '../../../../util/theme';
 
-const createStyles = (colors) =>
+const createStyles = (colors, shadows) =>
   StyleSheet.create({
     modalView: {
       backgroundColor: colors.background.default,
@@ -16,13 +15,7 @@ const createStyles = (colors) =>
       alignItems: 'center',
       marginVertical: 50,
       borderRadius: 10,
-      shadowColor: importedColors.black,
-      shadowOffset: {
-        width: 0,
-        height: 5,
-      },
-      shadowOpacity: 0.36,
-      shadowRadius: 6.68,
+      ...shadows.size.sm,
       elevation: 11,
     },
     modal: {
@@ -34,7 +27,6 @@ const createStyles = (colors) =>
       width: '100%',
       paddingVertical: 15,
       paddingHorizontal: 20,
-      paddingBottom: 5,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
@@ -45,9 +37,17 @@ const createStyles = (colors) =>
     },
     body: {
       width: '100%',
-      paddingVertical: 5,
+      paddingBottom: 5,
       marginBottom: 15,
       paddingHorizontal: 20,
+    },
+    messageLimit: {
+      width: '80%',
+    },
+    infoContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      width: '100%',
     },
   });
 
@@ -58,9 +58,40 @@ function InfoModal({
   toggleModal,
   message,
   propagateSwipe,
+  urlText,
+  url,
 }) {
-  const { colors } = useAppThemeFromContext() || mockTheme;
-  const styles = createStyles(colors);
+  const { colors, shadows } = useTheme();
+  const styles = createStyles(colors, shadows);
+
+  const CloseButton = () => (
+    <TouchableOpacity
+      onPress={toggleModal}
+      hitSlop={{ top: 20, left: 20, right: 20, bottom: 20 }}
+    >
+      <IonicIcon name="ios-close" style={styles.closeIcon} size={30} />
+    </TouchableOpacity>
+  );
+
+  const InfoView = () => {
+    if (!message) {
+      return <CloseButton />;
+    }
+
+    return (
+      <View style={styles.infoContainer}>
+        <Text style={styles.messageLimit}>
+          <Text>{message} </Text>
+          {urlText && (
+            <Text link onPress={url}>
+              {urlText}
+            </Text>
+          )}
+        </Text>
+        <CloseButton />
+      </View>
+    );
+  };
 
   return (
     <Modal
@@ -77,17 +108,9 @@ function InfoModal({
       <SafeAreaView style={styles.modalView}>
         <View style={styles.title}>
           {title && <Title>{title}</Title>}
-          {message && <Text>{message}</Text>}
-          {!message && (
-            <TouchableOpacity
-              onPress={toggleModal}
-              hitSlop={{ top: 20, left: 20, right: 20, bottom: 20 }}
-            >
-              <IonicIcon name="ios-close" style={styles.closeIcon} size={30} />
-            </TouchableOpacity>
-          )}
+          <InfoView />
         </View>
-        <View style={styles.body}>{body}</View>
+        {body && <View style={styles.body}>{body}</View>}
       </SafeAreaView>
     </Modal>
   );
@@ -99,6 +122,8 @@ InfoModal.propTypes = {
   toggleModal: PropTypes.func,
   propagateSwipe: PropTypes.bool,
   message: PropTypes.string,
+  urlText: PropTypes.string,
+  url: PropTypes.func,
 };
 
 export default InfoModal;

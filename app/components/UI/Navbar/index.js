@@ -13,6 +13,7 @@ import {
   Image,
   Keyboard,
   InteractionManager,
+  Platform,
 } from 'react-native';
 import { fontStyles, colors as importedColors } from '../../../styles/common';
 import IonicIcon from 'react-native-vector-icons/Ionicons';
@@ -23,14 +24,18 @@ import URL from 'url-parse';
 import { strings } from '../../../../locales/i18n';
 import AppConstants from '../../../core/AppConstants';
 import DeeplinkManager from '../../../core/DeeplinkManager';
-import Analytics from '../../../core/Analytics';
+import Analytics from '../../../core/Analytics/Analytics';
 import { ANALYTICS_EVENT_OPTS } from '../../../util/analytics';
 import { importAccountFromPrivateKey } from '../../../util/address';
 import Device from '../../../util/device';
 import { isGatewayUrl } from '../../../lib/ens-ipfs/resolver';
 import { getHost } from '../../../util/browser';
-import { BACK_ARROW_BUTTON_ID } from '../../../constants/test-ids';
-
+import generateTestId from '../../../../wdio/utils/generateTestId';
+import { WALLET_VIEW_BURGER_ICON_ID } from '../../../../wdio/features/testIDs/Screens/WalletView.testIds';
+import {
+  NAV_ANDROID_BACK_BUTTON,
+  NETWORK_BACK_ARROW_BUTTON_ID,
+} from '../../../../wdio/features/testIDs/Screens/NetworksScreen.testids';
 const { HOMEPAGE_URL } = AppConstants;
 
 const trackEvent = (event) => {
@@ -109,7 +114,7 @@ const metamask_fox = require('../../../images/fox.png'); // eslint-disable-line
 /**
  * Function that returns the navigation options
  * This is used by views that will show our custom navbar
- * which contains accounts icon, Title or Metamask Logo and current network, and settings icon
+ * which contains accounts icon, Title or MetaMask Logo and current network, and settings icon
  *
  * @param {string} title - Title in string format
  * @param {Object} navigation - Navigation object required to push new views
@@ -171,6 +176,7 @@ export function getNavigationOptionsTitle(
   navigation,
   isFullScreenModal,
   themeColors,
+  navigationPopEvent,
 ) {
   const innerStyles = StyleSheet.create({
     headerTitleStyle: {
@@ -188,6 +194,7 @@ export function getNavigationOptionsTitle(
     },
   });
   function navigationPop() {
+    if (navigationPopEvent) trackEvent(navigationPopEvent);
     navigation.pop();
   }
   return {
@@ -208,7 +215,7 @@ export function getNavigationOptionsTitle(
         <TouchableOpacity
           onPress={navigationPop}
           style={styles.backButton}
-          testID={BACK_ARROW_BUTTON_ID}
+          {...generateTestId(Platform, NETWORK_BACK_ARROW_BUTTON_ID)}
         >
           <IonicIcon
             name={Device.isAndroid() ? 'md-arrow-back' : 'ios-arrow-back'}
@@ -554,7 +561,7 @@ export function getSendFlowTitle(title, navigation, route, themeColors) {
 /**
  * Function that returns the navigation options
  * This is used by views that will show our custom navbar
- * which contains accounts icon, Title or Metamask Logo and current network, and settings icon
+ * which contains accounts icon, Title or MetaMask Logo and current network, and settings icon
  *
  * @param {Object} navigation - Navigation object required to push new views
  * @returns {Object} - Corresponding navbar options containing headerTitle, headerLeft and headerRight
@@ -865,7 +872,7 @@ export function getClosableNavigationOptions(
         <TouchableOpacity
           onPress={navigationPop}
           style={styles.backButton}
-          testID={'nav-android-back'}
+          {...generateTestId(Platform, NAV_ANDROID_BACK_BUTTON)}
         >
           <IonicIcon
             name={'md-arrow-back'}
@@ -979,6 +986,7 @@ export function getWalletNavbarOptions(
         testID={'hamburger-menu-button-wallet'}
       >
         <IonicIcon
+          {...generateTestId(Platform, WALLET_VIEW_BURGER_ICON_ID)}
           name={Device.isAndroid() ? 'md-menu' : 'ios-menu'}
           size={Device.isAndroid() ? 24 : 28}
           style={innerStyles.headerIcon}
@@ -1003,8 +1011,11 @@ export function getWalletNavbarOptions(
  * Function that returns the navigation options containing title and network indicator
  *
  * @param {string} title - Title in string format
- * @param {string} translate - Boolean that specifies if the title needs translation
+ * @param {boolean} translate - Boolean that specifies if the title needs translation
  * @param {Object} navigation - Navigation object required to push new views
+ * @param {Object} themeColors - Colors from theme
+ * @param {Function} onRightPress - Callback that determines if right button exists
+ * @param {boolean} disableNetwork - Boolean that determines if network is accessible from navbar
  * @returns {Object} - Corresponding navbar options containing headerTitle and headerTitle
  */
 export function getNetworkNavbarOptions(
@@ -1012,6 +1023,8 @@ export function getNetworkNavbarOptions(
   translate,
   navigation,
   themeColors,
+  onRightPress = undefined,
+  disableNetwork = false,
 ) {
   const innerStyles = StyleSheet.create({
     headerStyle: {
@@ -1024,7 +1037,13 @@ export function getNetworkNavbarOptions(
     },
   });
   return {
-    headerTitle: () => <NavbarTitle title={title} translate={translate} />,
+    headerTitle: () => (
+      <NavbarTitle
+        disableNetwork={disableNetwork}
+        title={title}
+        translate={translate}
+      />
+    ),
     headerLeft: () => (
       // eslint-disable-next-line react/jsx-no-bind
       <TouchableOpacity
@@ -1039,7 +1058,18 @@ export function getNetworkNavbarOptions(
         />
       </TouchableOpacity>
     ),
-    headerRight: () => <View />,
+    headerRight: onRightPress
+      ? () => (
+          <TouchableOpacity style={styles.backButton} onPress={onRightPress}>
+            <MaterialCommunityIcon
+              name={'dots-horizontal'}
+              size={28}
+              style={innerStyles.headerIcon}
+            />
+          </TouchableOpacity>
+          // eslint-disable-next-line no-mixed-spaces-and-tabs
+        )
+      : () => <View />,
     headerStyle: innerStyles.headerStyle,
   };
 }
@@ -1422,6 +1452,7 @@ export function getFiatOnRampAggNavbar(
   navigation,
   { title, showBack = true } = {},
   themeColors,
+  onCancel,
 ) {
   const innerStyles = StyleSheet.create({
     headerButtonText: {
@@ -1441,14 +1472,16 @@ export function getFiatOnRampAggNavbar(
       ...(!showBack && { textAlign: 'center' }),
     },
   });
-  const headerTitle = title ?? 'No title';
+  const headerTitle = title ?? 'Buy';
 
   const leftActionText = strings('navigation.back');
 
   const leftAction = () => navigation.pop();
 
   return {
-    headerTitle,
+    headerTitle: () => (
+      <NavbarTitle title={headerTitle} disableNetwork translate={false} />
+    ),
     headerLeft: () => {
       if (!showBack) return <View />;
 
@@ -1467,9 +1500,11 @@ export function getFiatOnRampAggNavbar(
       );
     },
     headerRight: () => (
-      // eslint-disable-next-line react/jsx-no-bind
       <TouchableOpacity
-        onPress={() => navigation.dangerouslyGetParent()?.pop()}
+        onPress={() => {
+          navigation.dangerouslyGetParent()?.pop();
+          onCancel?.();
+        }}
         style={styles.closeButton}
       >
         <Text style={innerStyles.headerButtonText}>

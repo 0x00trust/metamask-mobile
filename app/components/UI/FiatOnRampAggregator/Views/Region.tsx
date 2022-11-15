@@ -19,6 +19,7 @@ import ErrorView from '../components/ErrorView';
 import ErrorViewWithReporting from '../components/ErrorViewWithReporting';
 import { Region } from '../types';
 import Routes from '../../../../constants/navigation/Routes';
+import useAnalytics from '../hooks/useAnalytics';
 
 // TODO: Convert into typescript and correctly type
 const Text = BaseText as any;
@@ -33,11 +34,13 @@ const styles = StyleSheet.create({
 const RegionView = () => {
   const navigation = useNavigation();
   const { colors } = useTheme();
+  const trackEvent = useAnalytics();
   const {
     selectedRegion,
     setSelectedRegion,
     setSelectedFiatCurrencyId,
     sdkError,
+    selectedChainId,
   } = useFiatOnRampSDK();
   const [isRegionModalVisible, , showRegionModal, hideRegionModal] =
     useModalHandler(false);
@@ -48,6 +51,13 @@ const RegionView = () => {
   const [{ data, isFetching, error }, queryGetCountries] =
     useSDKMethod('getCountries');
 
+  const handleCancelPress = useCallback(() => {
+    trackEvent('ONRAMP_CANCELED', {
+      location: 'Region Screen',
+      chain_id_destination: selectedChainId,
+    });
+  }, [selectedChainId, trackEvent]);
+
   useEffect(() => {
     navigation.setOptions(
       getFiatOnRampAggNavbar(
@@ -57,9 +67,10 @@ const RegionView = () => {
           showBack: false,
         },
         colors,
+        handleCancelPress,
       ),
     );
-  }, [navigation, colors]);
+  }, [navigation, colors, handleCancelPress]);
 
   const handleOnPress = useCallback(() => {
     navigation.navigate(Routes.FIAT_ON_RAMP_AGGREGATOR.PAYMENT_METHOD);
@@ -99,7 +110,7 @@ const RegionView = () => {
     return (
       <ScreenLayout>
         <ScreenLayout.Body>
-          <ErrorViewWithReporting error={sdkError} />
+          <ErrorViewWithReporting error={sdkError} location={'Region Screen'} />
         </ScreenLayout.Body>
       </ScreenLayout>
     );
@@ -109,7 +120,11 @@ const RegionView = () => {
     return (
       <ScreenLayout>
         <ScreenLayout.Body>
-          <ErrorView description={error} ctaOnPress={queryGetCountries} />
+          <ErrorView
+            description={error}
+            ctaOnPress={queryGetCountries}
+            location={'Region Screen'}
+          />
         </ScreenLayout.Body>
       </ScreenLayout>
     );
@@ -183,6 +198,7 @@ const RegionView = () => {
           data={data}
           dismiss={hideRegionModal as () => void}
           onRegionPress={handleRegionPress}
+          location={'Region Screen'}
         />
       </ScreenLayout.Body>
       <ScreenLayout.Footer>

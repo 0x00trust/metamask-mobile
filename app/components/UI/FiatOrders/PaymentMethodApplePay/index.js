@@ -50,11 +50,7 @@ import {
   fiatOrdersCountrySelector,
   setFiatOrdersCountry,
 } from '../../../../reducers/fiatOrders';
-import {
-  useAppThemeFromContext,
-  mockTheme,
-  useAssetFromTheme,
-} from '../../../../util/theme';
+import { useTheme, useAssetFromTheme } from '../../../../util/theme';
 
 //* styles and components  */
 
@@ -155,7 +151,7 @@ const ApplePayLogoLight = require('../../../../images/ApplePayLogo-light.png');
 const ApplePayLogoDark = require('../../../../images/ApplePayLogo-dark.png');
 
 const ApplePay = ({ disabled }) => {
-  const { colors } = useAppThemeFromContext() || mockTheme;
+  const { colors } = useTheme();
   const styles = createStyles(colors);
   const applePayLogo = useAssetFromTheme(ApplePayLogoLight, ApplePayLogoDark);
 
@@ -181,7 +177,7 @@ const QuickAmount = ({
   placeholder,
   ...props
 }) => {
-  const { colors } = useAppThemeFromContext() || mockTheme;
+  const { colors } = useTheme();
   const styles = createStyles(colors);
 
   if (placeholder) {
@@ -243,7 +239,7 @@ function PaymentMethodApplePay({
 }) {
   const navigation = useNavigation();
   const [amount, setAmount] = useState('0');
-  const { colors } = useAppThemeFromContext() || mockTheme;
+  const { colors } = useTheme();
   const styles = createStyles(colors);
   const appleButtonColors = useAssetFromTheme(
     applePayButtonStylesLight,
@@ -348,7 +344,7 @@ function PaymentMethodApplePay({
               getNotificationDetails(order),
             );
             AnalyticsV2.trackEvent(
-              AnalyticsV2.ANALYTICS_EVENTS.ONRAMP_PURCHASE_SUBMITTED,
+              AnalyticsV2.ANALYTICS_EVENTS.ONRAMP_PURCHASE_SUBMITTED_LEGACY,
               {
                 fiat_amount: { value: order.amount, anonymous: true },
                 fiat_currency: { value: order.currency, anonymous: true },

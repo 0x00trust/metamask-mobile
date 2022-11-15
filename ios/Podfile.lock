@@ -308,7 +308,9 @@ PODS:
     - React-Core
   - react-native-camera/RN (3.44.3):
     - React-Core
-  - react-native-cookies (5.0.1):
+  - react-native-cookies (6.2.1):
+    - React-Core
+  - react-native-get-random-values (1.8.0):
     - React-Core
   - react-native-in-app-review (3.2.3):
     - React
@@ -331,6 +333,8 @@ PODS:
     - React
   - react-native-viewpager (3.3.1):
     - React
+  - react-native-webrtc (1.100.0):
+    - React-Core
   - react-native-webview (11.13.0):
     - React-Core
   - React-perflogger (0.66.3)
@@ -408,7 +412,7 @@ PODS:
     - React
   - rn-fetch-blob (0.12.0):
     - React-Core
-  - RNCAsyncStorage (1.12.1):
+  - RNCAsyncStorage (1.17.10):
     - React-Core
   - RNCCheckbox (0.5.12):
     - React-Core
@@ -420,7 +424,7 @@ PODS:
     - React-Core
   - RNDefaultPreference (1.4.3):
     - React
-  - RNDeviceInfo (8.1.3):
+  - RNDeviceInfo (9.0.2):
     - React-Core
   - RNFS (2.18.0):
     - React
@@ -428,11 +432,13 @@ PODS:
     - React-Core
   - RNI18n (2.0.15):
     - React
+  - RNInAppBrowser (3.7.0):
+    - React-Core
   - RNKeychain (8.0.0):
     - React-Core
   - RNOS (1.2.6):
     - React
-  - RNReanimated (2.2.3):
+  - RNReanimated (2.11.0):
     - DoubleConversion
     - FBLazyVector
     - FBReactNativeSpec
@@ -440,7 +446,6 @@ PODS:
     - RCT-Folly
     - RCTRequired
     - RCTTypeSafety
-    - React
     - React-callinvoker
     - React-Core
     - React-Core/DevSupport
@@ -458,10 +463,9 @@ PODS:
     - React-RCTNetwork
     - React-RCTSettings
     - React-RCTText
-    - React-RCTVibration
     - ReactCommon/turbomodule/core
     - Yoga
-  - RNScreens (3.4.0):
+  - RNScreens (3.13.1):
     - React-Core
     - React-RCTImage
   - RNSensors (5.3.0):
@@ -475,9 +479,14 @@ PODS:
     - React
   - RNVectorIcons (6.4.2):
     - React
+  - segment-analytics-react-native (2.9.1):
+    - React-Core
+    - sovran-react-native
   - Sentry (6.1.4):
     - Sentry/Core (= 6.1.4)
   - Sentry/Core (6.1.4)
+  - sovran-react-native (0.4.5):
+    - React-Core
   - TcpSockets (4.0.0):
     - CocoaAsyncSocket
     - React
@@ -534,7 +543,8 @@ DEPENDENCIES:
   - "react-native-blur (from `../node_modules/@react-native-community/blur`)"
   - react-native-branch (from `../node_modules/react-native-branch`)
   - react-native-camera (from `../node_modules/react-native-camera`)
-  - "react-native-cookies (from `../node_modules/@react-native-community/cookies`)"
+  - "react-native-cookies (from `../node_modules/@react-native-cookies/cookies`)"
+  - react-native-get-random-values (from `../node_modules/react-native-get-random-values`)
   - react-native-in-app-review (from `../node_modules/react-native-in-app-review`)
   - react-native-minimizer (from `../node_modules/react-native-minimizer`)
   - "react-native-netinfo (from `../node_modules/@react-native-community/netinfo`)"
@@ -544,6 +554,7 @@ DEPENDENCIES:
   - react-native-video (from `../node_modules/react-native-video`)
   - react-native-view-shot (from `../node_modules/react-native-view-shot`)
   - "react-native-viewpager (from `../node_modules/@react-native-community/viewpager`)"
+  - react-native-webrtc (from `../node_modules/react-native-webrtc`)
   - react-native-webview (from `../node_modules/react-native-webview`)
   - React-perflogger (from `../node_modules/react-native/ReactCommon/reactperflogger`)
   - React-RCTActionSheet (from `../node_modules/react-native/Libraries/ActionSheetIOS`)
@@ -560,7 +571,7 @@ DEPENDENCIES:
   - ReactCommon/turbomodule/core (from `../node_modules/react-native/ReactCommon`)
   - "ReactNativePayments (from `../node_modules/@exodus/react-native-payments/lib/ios`)"
   - rn-fetch-blob (from `../node_modules/rn-fetch-blob`)
-  - "RNCAsyncStorage (from `../node_modules/@react-native-community/async-storage`)"
+  - "RNCAsyncStorage (from `../node_modules/@react-native-async-storage/async-storage`)"
   - "RNCCheckbox (from `../node_modules/@react-native-community/checkbox`)"
   - "RNCClipboard (from `../node_modules/@react-native-clipboard/clipboard`)"
   - "RNCMaskedView (from `../node_modules/@react-native-masked-view/masked-view`)"
@@ -570,6 +581,7 @@ DEPENDENCIES:
   - RNFS (from `../node_modules/react-native-fs`)
   - RNGestureHandler (from `../node_modules/react-native-gesture-handler`)
   - RNI18n (from `../node_modules/react-native-i18n`)
+  - RNInAppBrowser (from `../node_modules/react-native-inappbrowser-reborn`)
   - RNKeychain (from `../node_modules/react-native-keychain`)
   - RNOS (from `../node_modules/react-native-os`)
   - RNReanimated (from `../node_modules/react-native-reanimated`)
@@ -579,6 +591,8 @@ DEPENDENCIES:
   - RNShare (from `../node_modules/react-native-share`)
   - RNSVG (from `../node_modules/react-native-svg`)
   - RNVectorIcons (from `../node_modules/react-native-vector-icons`)
+  - "segment-analytics-react-native (from `../node_modules/@segment/analytics-react-native`)"
+  - "sovran-react-native (from `../node_modules/@segment/sovran-react-native`)"
   - TcpSockets (from `../node_modules/react-native-tcp`)
   - Yoga (from `../node_modules/react-native/ReactCommon/yoga`)
 
@@ -654,7 +668,9 @@ EXTERNAL SOURCES:
   react-native-camera:
     :path: "../node_modules/react-native-camera"
   react-native-cookies:
-    :path: "../node_modules/@react-native-community/cookies"
+    :path: "../node_modules/@react-native-cookies/cookies"
+  react-native-get-random-values:
+    :path: "../node_modules/react-native-get-random-values"
   react-native-in-app-review:
     :path: "../node_modules/react-native-in-app-review"
   react-native-minimizer:
@@ -673,6 +689,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-view-shot"
   react-native-viewpager:
     :path: "../node_modules/@react-native-community/viewpager"
+  react-native-webrtc:
+    :path: "../node_modules/react-native-webrtc"
   react-native-webview:
     :path: "../node_modules/react-native-webview"
   React-perflogger:
@@ -706,7 +724,7 @@ EXTERNAL SOURCES:
   rn-fetch-blob:
     :path: "../node_modules/rn-fetch-blob"
   RNCAsyncStorage:
-    :path: "../node_modules/@react-native-community/async-storage"
+    :path: "../node_modules/@react-native-async-storage/async-storage"
   RNCCheckbox:
     :path: "../node_modules/@react-native-community/checkbox"
   RNCClipboard:
@@ -725,6 +743,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-gesture-handler"
   RNI18n:
     :path: "../node_modules/react-native-i18n"
+  RNInAppBrowser:
+    :path: "../node_modules/react-native-inappbrowser-reborn"
   RNKeychain:
     :path: "../node_modules/react-native-keychain"
   RNOS:
@@ -743,6 +763,10 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-svg"
   RNVectorIcons:
     :path: "../node_modules/react-native-vector-icons"
+  segment-analytics-react-native:
+    :path: "../node_modules/@segment/analytics-react-native"
+  sovran-react-native:
+    :path: "../node_modules/@segment/sovran-react-native"
   TcpSockets:
     :path: "../node_modules/react-native-tcp"
   Yoga:
@@ -789,7 +813,8 @@ SPEC CHECKSUMS:
   react-native-blur: cad4d93b364f91e7b7931b3fa935455487e5c33c
   react-native-branch: 5b20bf032b3a1a20d2b76e57215bd3254a137dd5
   react-native-camera: b8cc03e2feec0c04403d0998e37cf519d8fd4c6f
-  react-native-cookies: ce50e42ace7cf0dd47769260ca5bbe8eee607e4e
+  react-native-cookies: f54fcded06bb0cda05c11d86788020b43528a26c
+  react-native-get-random-values: a6ea6a8a65dc93e96e24a11105b1a9c8cfe1d72a
   react-native-in-app-review: 23f4f5b9fcd94339dd5d93c6230557f9c67c7dda
   react-native-minimizer: bd07450123d8c685acb2dff64f0213b0c7b5dbd6
   react-native-netinfo: e849fc21ca2f4128a5726c801a82fc6f4a6db50d
@@ -799,6 +824,7 @@ SPEC CHECKSUMS:
   react-native-video: 0bb76b6d6b77da3009611586c7dbf817b947f30e
   react-native-view-shot: 4475fde003fe8a210053d1f98fb9e06c1d834e1c
   react-native-viewpager: f730c1d175a2c1ae789464855d4a2c14247d3109
+  react-native-webrtc: b8f2769386d51a6a8c89778478618fe311226bc3
   react-native-webview: 133a6a5149f963259646e710b4545c67ef35d7c9
   React-perflogger: 73732888d37d4f5065198727b167846743232882
   React-RCTActionSheet: 96c6d774fa89b1f7c59fc460adc3245ba2d7fd79
@@ -815,30 +841,33 @@ SPEC CHECKSUMS:
   ReactCommon: 9bac022ab71596f2b0fde1268272543184c63971
   ReactNativePayments: a4e3ac915256a4e759c8a04338b558494a63a0f5
   rn-fetch-blob: f065bb7ab7fb48dd002629f8bdcb0336602d3cba
-  RNCAsyncStorage: b03032fdbdb725bea0bd9e5ec5a7272865ae7398
+  RNCAsyncStorage: 0c357f3156fcb16c8589ede67cc036330b6698ca
   RNCCheckbox: ed1b4ca295475b41e7251ebae046360a703b6eb5
   RNCClipboard: ddd4d291537f1667209c9c405aaa4307297e252e
   RNCMaskedView: c298b644a10c0c142055b3ae24d83879ecb13ccd
   RNCPicker: cb57c823d5ce8d2d0b5dfb45ad97b737260dc59e
   RNDefaultPreference: 2f8d6d54230edbd78708ada8d63bb275e5a8415b
-  RNDeviceInfo: 8d3a29207835f972bce883723882980143270d55
+  RNDeviceInfo: 1e3f62b9ec32f7754fac60bd06b8f8a27124e7f0
   RNFS: 3ab21fa6c56d65566d1fb26c2228e2b6132e5e32
   RNGestureHandler: a479ebd5ed4221a810967000735517df0d2db211
   RNI18n: e2f7e76389fcc6e84f2c8733ea89b92502351fd8
+  RNInAppBrowser: e36d6935517101ccba0e875bac8ad7b0cb655364
   RNKeychain: 4f63aada75ebafd26f4bc2c670199461eab85d94
   RNOS: 6f2f9a70895bbbfbdad7196abd952e7b01d45027
-  RNReanimated: b04ef2a4f0cb61b062bbcf033f84a9e470f4f60b
-  RNScreens: 21b73c94c9117e1110a79ee0ee80c93ccefed8ce
+  RNReanimated: 0a4de6844119f4f1c3a46e6e7958ee7425ab4d0f
+  RNScreens: 40a2cb40a02a609938137a1e0acfbf8fc9eebf19
   RNSensors: c363d486c879e181905dea84a2535e49af1c2d25
   RNSentry: e86fb2e2fec0365644f4b582938bf66be515acce
   RNShare: f116bbb04f310c665ca483d0bd1e88cf59b3b334
   RNSVG: 551acb6562324b1d52a4e0758f7ca0ec234e278f
   RNVectorIcons: 6607bd3a30291d0edb56f9bbe7ae411ee2b928b0
+  segment-analytics-react-native: 36a0e668c91fe9dc35a31079493d504c45ebf8d8
   Sentry: 9d055e2de30a77685e86b219acf02e59b82091fc
+  sovran-react-native: fd3dc8f1a4b14acdc4ad25fc6b4ac4f52a2a2a15
   TcpSockets: a8eb6b5867fe643e6cfed5db2e4de62f4d1e8fd0
   Yoga: 32a18c0e845e185f4a2a66ec76e1fd1f958f22fa
   YogaKit: f782866e155069a2cca2517aafea43200b01fd5a
 
-PODFILE CHECKSUM: 5759da19ce141e5f8aca3a4f56ac232baa34e957
+PODFILE CHECKSUM: 7f7f2a91148820d72060690efb985d8d04e01f4b
 
-COCOAPODS: 1.11.2
+COCOAPODS: 1.11.3

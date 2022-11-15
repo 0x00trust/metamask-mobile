@@ -17,21 +17,16 @@ import BrowserBottomBar from '../../UI/BrowserBottomBar';
 import PropTypes from 'prop-types';
 import Share from 'react-native-share';
 import { connect } from 'react-redux';
-import BackgroundBridge from '../../../core/BackgroundBridge';
+import BackgroundBridge from '../../../core/BackgroundBridge/BackgroundBridge';
 import Engine from '../../../core/Engine';
 import PhishingModal from '../../UI/PhishingModal';
 import WebviewProgressBar from '../../UI/WebviewProgressBar';
-import {
-  baseStyles,
-  fontStyles,
-  colors as importedColors,
-} from '../../../styles/common';
+import { baseStyles, fontStyles } from '../../../styles/common';
 import Logger from '../../../util/Logger';
-import onUrlSubmit, { getHost, getUrlObj } from '../../../util/browser';
+import onUrlSubmit, { getHost, getUrlObj, isTLD } from '../../../util/browser';
 import {
   SPA_urlChangeListener,
   JS_DESELECT_TEXT,
-  JS_WEBVIEW_URL,
 } from '../../../util/browserScripts';
 import resolveEnsToIpfsContentId from '../../../lib/ens-ipfs/resolver';
 import Button from '../../UI/Button';
@@ -45,7 +40,7 @@ import { addToHistory, addToWhitelist } from '../../../actions/browser';
 import Device from '../../../util/device';
 import AppConstants from '../../../core/AppConstants';
 import SearchApi from 'react-native-search-api';
-import Analytics from '../../../core/Analytics';
+import Analytics from '../../../core/Analytics/Analytics';
 import AnalyticsV2, { trackErrorAsAnalytics } from '../../../util/analyticsV2';
 import { ANALYTICS_EVENT_OPTS } from '../../../util/analytics';
 import { toggleNetworkModal } from '../../../actions/modals';
@@ -56,15 +51,22 @@ import EntryScriptWeb3 from '../../../core/EntryScriptWeb3';
 import ErrorBoundary from '../ErrorBoundary';
 
 import { getRpcMethodMiddleware } from '../../../core/RPCMethods/RPCMethodMiddleware';
-import { useAppThemeFromContext, mockTheme } from '../../../util/theme';
+import { useTheme } from '../../../util/theme';
 import downloadFile from '../../../util/browser/downloadFile';
 import { createBrowserUrlModalNavDetails } from '../BrowserUrlModal/BrowserUrlModal';
+import {
+  MM_PHISH_DETECT_URL,
+  MM_BLOCKLIST_ISSUE_URL,
+  PHISHFORT_BLOCKLIST_ISSUE_URL,
+  MM_ETHERSCAN_URL,
+} from '../../../constants/urls';
+import sanitizeUrlInput from '../../../util/url/sanitizeUrlInput';
 
-const { HOMEPAGE_URL, USER_AGENT, NOTIFICATION_NAMES } = AppConstants;
+const { HOMEPAGE_URL, NOTIFICATION_NAMES } = AppConstants;
 const HOMEPAGE_HOST = new URL(HOMEPAGE_URL)?.hostname;
 const MM_MIXPANEL_TOKEN = process.env.MM_MIXPANEL_TOKEN;
 
-const createStyles = (colors) =>
+const createStyles = (colors, shadows) =>
   StyleSheet.create({
     wrapper: {
       ...baseStyles.flexGrow,
@@ -106,18 +108,12 @@ const createStyles = (colors) =>
       paddingTop: 10,
     },
     optionsWrapperAndroid: {
-      shadowColor: importedColors.shadow,
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.5,
-      shadowRadius: 3,
+      ...shadows.size.xs,
       bottom: 65,
       right: 5,
     },
     optionsWrapperIos: {
-      shadowColor: importedColors.shadow,
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.5,
-      shadowRadius: 3,
+      ...shadows.size.xs,
       bottom: 90,
       right: 5,
     },
@@ -225,19 +221,19 @@ export const BrowserTab = (props) => {
   const [entryScriptWeb3, setEntryScriptWeb3] = useState(null);
   const [showPhishingModal, setShowPhishingModal] = useState(false);
   const [blockedUrl, setBlockedUrl] = useState(undefined);
-
   const webviewRef = useRef(null);
+  const blockListType = useRef('');
+  const allowList = useRef([]);
 
   const url = useRef('');
   const title = useRef('');
   const icon = useRef(null);
-  const webviewUrlPostMessagePromiseResolve = useRef(null);
   const backgroundBridges = useRef([]);
   const fromHomepage = useRef(false);
   const wizardScrollAdjusted = useRef(false);
 
-  const { colors } = useAppThemeFromContext() || mockTheme;
-  const styles = createStyles(colors);
+  const { colors, shadows } = useTheme();
+  const styles = createStyles(colors, shadows);
 
   /**
    * Is the current tab the active tab
@@ -408,16 +404,19 @@ export const BrowserTab = (props) => {
   /**
    * Check if a hostname is allowed
    */
-  const isAllowedUrl = useCallback(
-    (hostname) => {
-      const { PhishingController } = Engine.context;
-      return (
-        (props.whitelist && props.whitelist.includes(hostname)) ||
-        !PhishingController.test(hostname)
-      );
-    },
-    [props.whitelist],
-  );
+  const isAllowedUrl = useCallback((hostname) => {
+    const { PhishingController } = Engine.context;
+    const phishingControllerTestResult = PhishingController.test(hostname);
+
+    // Only assign the if the hostname is on the block list
+    if (phishingControllerTestResult.result)
+      blockListType.current = phishingControllerTestResult.name;
+
+    return (
+      (allowList.current && allowList.current.includes(hostname)) ||
+      !phishingControllerTestResult.result
+    );
+  }, []);
 
   const isBookmark = () => {
     const { bookmarks } = props;
@@ -471,12 +470,8 @@ export const BrowserTab = (props) => {
           type,
         };
       } catch (err) {
-        // This is a TLD that might be a normal website
-        // For example .XYZ and might be more in the future
-        if (
-          hostname.substr(-4) !== '.eth' &&
-          err.toString().indexOf('is not standard') !== -1
-        ) {
+        //if it's not a ENS but a TLD (Top Level Domain)
+        if (isTLD(hostname, err)) {
           ensIgnoreList.push(hostname);
           return { url: fullUrl, reload: true };
         }
@@ -508,8 +503,8 @@ export const BrowserTab = (props) => {
       const hasProtocol = url.match(/^[a-z]*:\/\//) || isHomepage(url);
       const sanitizedURL = hasProtocol ? url : `${props.defaultProtocol}${url}`;
       const { hostname, query, pathname } = new URL(sanitizedURL);
-
       let urlToGo = sanitizedURL;
+      urlToGo = sanitizeUrlInput(urlToGo);
       const isEnsUrl = isENSUrl(url);
       const { current } = webviewRef;
       if (isEnsUrl) {
@@ -653,7 +648,7 @@ export const BrowserTab = (props) => {
    */
   const injectHomePageScripts = async (bookmarks) => {
     const { current } = webviewRef;
-    const analyticsEnabled = Analytics.getEnabled();
+    const analyticsEnabled = Analytics.checkEnabled();
     const disctinctId = await Analytics.getDistinctId();
     const homepageScripts = `
 			window.__mmFavorites = ${JSON.stringify(bookmarks || props.bookmarks)};
@@ -709,7 +704,7 @@ export const BrowserTab = (props) => {
    */
   const goToETHPhishingDetector = () => {
     setShowPhishingModal(false);
-    go(`https://github.com/metamask/eth-phishing-detect`);
+    go(MM_PHISH_DETECT_URL);
   };
 
   /**
@@ -727,11 +722,11 @@ export const BrowserTab = (props) => {
   };
 
   /**
-   * Go to etherscam website
+   * Go to etherscam websiter
    */
   const goToEtherscam = () => {
     setShowPhishingModal(false);
-    go(`https://etherscamdb.info/domain/meta-mask.com`);
+    go(MM_ETHERSCAN_URL);
   };
 
   /**
@@ -739,7 +734,9 @@ export const BrowserTab = (props) => {
    */
   const goToFilePhishingIssue = () => {
     setShowPhishingModal(false);
-    go(`https://github.com/metamask/eth-phishing-detect/issues/new`);
+    blockListType.current === 'MetaMask'
+      ? go(MM_BLOCKLIST_ISSUE_URL)
+      : go(PHISHFORT_BLOCKLIST_ISSUE_URL);
   };
 
   /**
@@ -808,7 +805,6 @@ export const BrowserTab = (props) => {
     //For iOS url on the navigation bar should only update upon load.
     if (Device.isIos()) {
       changeUrl(nativeEvent);
-      changeAddressBar(nativeEvent);
     }
   };
 
@@ -816,26 +812,19 @@ export const BrowserTab = (props) => {
    * When website finished loading
    */
   const onLoadEnd = ({ nativeEvent }) => {
-    if (nativeEvent.loading) return;
-    const { current } = webviewRef;
-
-    current && current.injectJavaScript(JS_WEBVIEW_URL);
-
-    const promiseResolver = (resolve) => {
-      webviewUrlPostMessagePromiseResolve.current = resolve;
-    };
-    const promise = current
-      ? new Promise(promiseResolver)
-      : Promise.resolve(url.current);
-
-    promise.then((info) => {
-      const { hostname: currentHostname } = new URL(url.current);
-      const { hostname } = new URL(nativeEvent.url);
-      if (info.url === nativeEvent.url && currentHostname === hostname) {
-        changeUrl({ ...nativeEvent, icon: info.icon });
-        changeAddressBar({ ...nativeEvent, icon: info.icon });
-      }
-    });
+    // Do not update URL unless website has successfully completed loading.
+    if (nativeEvent.loading) {
+      return;
+    }
+    // Use URL to produce real url. This should be the actual website that the user is viewing.
+    const urlObj = new URL(nativeEvent.url);
+    const { origin, pathname = '', query = '' } = urlObj;
+    const realUrl = `${origin}${pathname}${query}`;
+    // Generate favicon.
+    const favicon = `https://api.faviconkit.com/${getHost(realUrl)}/32`;
+    // Update navigation bar address with title of loaded url.
+    changeUrl({ ...nativeEvent, url: realUrl, icon: favicon });
+    changeAddressBar({ ...nativeEvent, url: realUrl, icon: favicon });
   };
 
   /**
@@ -858,22 +847,6 @@ export const BrowserTab = (props) => {
           }
         });
         return;
-      }
-
-      switch (data.type) {
-        /**
-				* Disabling iframes for now
-				case 'FRAME_READY': {
-					const { url } = data.payload;
-					onFrameLoadStarted(url);
-					break;
-				}*/
-        case 'GET_WEBVIEW_URL': {
-          const { url } = data.payload;
-          if (url === nativeEvent.url)
-            webviewUrlPostMessagePromiseResolve.current &&
-              webviewUrlPostMessagePromiseResolve.current(data.payload);
-        }
       }
     } catch (e) {
       Logger.error(e, `Browser::onMessage on ${url.current}`);
@@ -972,22 +945,21 @@ export const BrowserTab = (props) => {
   const onLoadStart = async ({ nativeEvent }) => {
     const { hostname } = new URL(nativeEvent.url);
 
-    if (nativeEvent.url !== url.current) {
+    if (
+      nativeEvent.url !== url.current &&
+      nativeEvent.loading &&
+      nativeEvent.navigationType === 'backforward'
+    ) {
       changeAddressBar({ ...nativeEvent });
     }
 
     if (!isAllowedUrl(hostname)) {
       return handleNotAllowedUrl(nativeEvent.url);
     }
-    webviewUrlPostMessagePromiseResolve.current = null;
+
     setError(false);
 
-    changeUrl(nativeEvent, 'start');
-
-    //For Android url on the navigation bar should only update upon load.
-    if (Device.isAndroid()) {
-      changeAddressBar(nativeEvent);
-    }
+    changeUrl(nativeEvent);
 
     icon.current = null;
     if (isHomepage(nativeEvent.url)) {
@@ -1019,6 +991,13 @@ export const BrowserTab = (props) => {
 		*/
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [error, props.activeTab, props.id, toggleUrlModal]);
+
+  /**
+   * Allow list updates do not propigate through the useCallbacks this updates a ref that is use in the callbacks
+   */
+  const updateAllowList = () => {
+    allowList.current = props.whitelist;
+  };
 
   /**
    * Render the progress bar
@@ -1344,6 +1323,7 @@ export const BrowserTab = (props) => {
         <View style={styles.webview}>
           {!!entryScriptWeb3 && firstUrlLoaded && (
             <WebView
+              originWhitelist={['https://*', 'http://*']}
               decelerationRate={'normal'}
               ref={webviewRef}
               renderError={() => (
@@ -1359,16 +1339,17 @@ export const BrowserTab = (props) => {
               onMessage={onMessage}
               onError={onError}
               onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
-              userAgent={USER_AGENT}
               sendCookies
               javascriptEnabled
               allowsInlineMediaPlayback
               useWebkit
               testID={'browser-webview'}
+              applicationNameForUserAgent={'WebView MetaMaskMobile'}
               onFileDownload={handleOnFileDownload}
             />
           )}
         </View>
+        {updateAllowList()}
         {renderProgressBar()}
         {isTabActive() && renderPhishingModal()}
         {isTabActive() && renderOptions()}

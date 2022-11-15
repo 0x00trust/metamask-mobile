@@ -14,8 +14,11 @@ import { isValidAddress } from 'ethereumjs-util';
 import ActionView from '../ActionView';
 import { isSmartContractAddress } from '../../../util/transactions';
 import AnalyticsV2 from '../../../util/analyticsV2';
-import WarningMessage from '../../Views/SendFlow/WarningMessage';
 import AppConstants from '../../../core/AppConstants';
+import Alert, { AlertType } from '../../Base/Alert';
+import FontAwesome from 'react-native-vector-icons/FontAwesome';
+import WarningMessage from '../../Views/SendFlow/WarningMessage';
+import NotificationManager from '../../../core/NotificationManager';
 import { ThemeContext, mockTheme } from '../../../util/theme';
 
 const createStyles = (colors) =>
@@ -40,12 +43,17 @@ const createStyles = (colors) =>
       color: colors.text.default,
     },
     warningText: {
+      ...fontStyles.normal,
       marginTop: 15,
       color: colors.error.default,
-      ...fontStyles.normal,
     },
-    warningContainer: { marginHorizontal: 20, marginTop: 20, paddingRight: 0 },
-    warningLink: { color: colors.primary.default },
+    tokenDetectionBanner: { marginHorizontal: 20, marginTop: 20 },
+    tokenDetectionDescription: { color: colors.text.default },
+    tokenDetectionLink: { color: colors.primary.default },
+    tokenDetectionIcon: {
+      paddingTop: 4,
+      paddingRight: 8,
+    },
   });
 
 /**
@@ -66,6 +74,10 @@ export default class AddCustomToken extends PureComponent {
     /* navigation object required to push new views
     */
     navigation: PropTypes.object,
+    /**
+     * Checks if token detection is supported
+     */
+    isTokenDetectionSupported: PropTypes.bool,
   };
 
   getAnalyticsParams = () => {
@@ -109,6 +121,14 @@ export default class AddCustomToken extends PureComponent {
       () => {
         InteractionManager.runAfterInteractions(() => {
           this.props.navigation.goBack();
+          NotificationManager.showSimpleNotification({
+            status: `simple_notification`,
+            duration: 5000,
+            title: strings('wallet.token_toast.token_imported_title'),
+            description: strings('wallet.token_toast.token_imported_desc', {
+              tokenSymbol: symbol,
+            }),
+          });
         });
       },
     );
@@ -153,7 +173,8 @@ export default class AddCustomToken extends PureComponent {
     const { chainId } = NetworkController?.state?.provider || {};
     const toSmartContract =
       isValidTokenAddress && (await isSmartContractAddress(address, chainId));
-    if (address.length === 0) {
+    const addressWithoutSpaces = address.replace(/\s/g, '');
+    if (addressWithoutSpaces.length === 0) {
       this.setState({ warningAddress: strings('token.address_cant_be_empty') });
       validated = false;
     } else if (!isValidTokenAddress) {
@@ -173,7 +194,8 @@ export default class AddCustomToken extends PureComponent {
   validateCustomTokenSymbol = () => {
     let validated = true;
     const symbol = this.state.symbol;
-    if (symbol.length === 0) {
+    const symbolWithoutSpaces = symbol.replace(/\s/g, '');
+    if (symbolWithoutSpaces.length === 0) {
       this.setState({ warningSymbol: strings('token.symbol_cant_be_empty') });
       validated = false;
     } else {
@@ -185,7 +207,8 @@ export default class AddCustomToken extends PureComponent {
   validateCustomTokenDecimals = () => {
     let validated = true;
     const decimals = this.state.decimals;
-    if (decimals.length === 0) {
+    const decimalsWithoutSpaces = decimals.replace(/\s/g, '');
+    if (decimalsWithoutSpaces.length === 0) {
       this.setState({
         warningDecimals: strings('token.decimals_cant_be_empty'),
       });
@@ -216,38 +239,87 @@ export default class AddCustomToken extends PureComponent {
     current && current.focus();
   };
 
-  renderWarning = () => {
+  renderInfoBanner = () => {
+    const { navigation } = this.props;
+    const colors = this.context.colors || mockTheme.colors;
+    const styles = createStyles(colors);
+
+    return (
+      <Alert
+        type={AlertType.Info}
+        style={styles.tokenDetectionBanner}
+        renderIcon={() => (
+          <FontAwesome
+            style={styles.tokenDetectionIcon}
+            name={'exclamation-circle'}
+            color={colors.primary.default}
+            size={18}
+          />
+        )}
+      >
+        <>
+          <Text style={styles.tokenDetectionDescription}>
+            {strings('add_asset.banners.custom_info_desc')}
+          </Text>
+          <Text
+            suppressHighlighting
+            onPress={() => {
+              navigation.navigate('Webview', {
+                screen: 'SimpleWebview',
+                params: {
+                  url: AppConstants.URLS.SECURITY,
+                  title: strings('add_asset.banners.custom_security_tips'),
+                },
+              });
+            }}
+            style={styles.tokenDetectionLink}
+          >
+            {strings('add_asset.banners.custom_info_link')}
+          </Text>
+        </>
+      </Alert>
+    );
+  };
+
+  renderWarningBanner = () => {
+    const { navigation } = this.props;
     const colors = this.context.colors || mockTheme.colors;
     const styles = createStyles(colors);
 
     return (
       <WarningMessage
-        style={styles.warningContainer}
+        style={styles.tokenDetectionBanner}
         warningMessage={
           <>
-            {strings('add_asset.warning_body_description')}
+            <Text style={styles.tokenDetectionDescription}>
+              {strings('add_asset.banners.custom_warning_desc')}
+            </Text>
             <Text
               suppressHighlighting
               onPress={() => {
                 // TODO: This functionality exists in a bunch of other places. We need to unify this into a utils function
-                this.props.navigation.navigate('Webview', {
+                navigation.navigate('Webview', {
                   screen: 'SimpleWebview',
                   params: {
                     url: AppConstants.URLS.SECURITY,
-                    title: strings('add_asset.security_tips'),
+                    title: strings('add_asset.banners.custom_security_tips'),
                   },
                 });
               }}
-              style={styles.warningLink}
-              testID={'add-asset-warning-message'}
+              style={styles.tokenDetectionLink}
             >
-              {strings('add_asset.warning_link')}
+              {strings('add_asset.banners.custom_warning_link')}
             </Text>
           </>
         }
       />
     );
   };
+
+  renderBanner = () =>
+    this.props.isTokenDetectionSupported
+      ? this.renderWarningBanner()
+      : this.renderInfoBanner();
 
   render = () => {
     const { address, symbol, decimals } = this.state;
@@ -268,7 +340,7 @@ export default class AddCustomToken extends PureComponent {
           confirmDisabled={!(address && symbol && decimals)}
         >
           <View>
-            {this.renderWarning()}
+            {this.renderBanner()}
             <View style={styles.rowWrapper}>
               <Text style={styles.inputLabel}>
                 {strings('token.token_address')}
@@ -310,7 +382,7 @@ export default class AddCustomToken extends PureComponent {
             </View>
             <View style={styles.rowWrapper}>
               <Text style={styles.inputLabel}>
-                {strings('token.token_precision')}
+                {strings('token.token_decimal')}
               </Text>
               <TextInput
                 style={styles.textInput}
